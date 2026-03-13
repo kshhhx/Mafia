@@ -33,7 +33,7 @@ export default function NightPhaseView() {
        <div className="text-center mb-8 pt-8">
            <h2 className="text-4xl font-black text-white mb-2 tracking-wide">Night Phase</h2>
            <p className="text-gray-400">
-             {me.role === 'Mafia' && 'Choose a citizen to eliminate.'}
+             {me.role === 'Mafia' && 'Choose a citizen to eliminate. If there are multiple Mafia, all must vote and the majority decides.'}
              {me.role === 'Doctor' && 'Choose a player to save tonight.'}
              {me.role === 'Detective' && 'Choose a player to investigate.'}
            </p>

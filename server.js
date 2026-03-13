@@ -17,6 +17,15 @@ function generateRoomCode() {
   return Math.random().toString(36).substring(2, 6).toUpperCase();
 }
 
+function getPlayer(lobby, socketId) {
+  return lobby?.players.find(p => p.socketId === socketId);
+}
+
+function isHost(lobby, socketId) {
+  const p = getPlayer(lobby, socketId);
+  return lobby && p && lobby.hostId === p.playerId;
+}
+
 app.prepare().then(() => {
   const expressApp = express();
   const httpServer = createServer(expressApp);
@@ -111,8 +120,7 @@ app.prepare().then(() => {
 
     socket.on('updateRoleConfig', ({ lobbyId, config }) => {
       const lobby = lobbies.get(lobbyId);
-      const player = lobby?.players.find(p => p.socketId === socket.id);
-      if (!lobby || !player || lobby.hostId !== player.playerId) return;
+      if (!isHost(lobby, socket.id)) return;
       lobby.roleConfig = config;
       io.to(lobbyId).emit('gameStateUpdate', lobby);
     });
@@ -129,8 +137,7 @@ app.prepare().then(() => {
 
     socket.on('startGame', (lobbyId) => {
       const lobby = lobbies.get(lobbyId);
-      const player = lobby?.players.find(p => p.socketId === socket.id);
-      if (!lobby || !player || lobby.hostId !== player.playerId) return;
+      if (!isHost(lobby, socket.id)) return;
 
       const totalRolesConfigured = lobby.roleConfig.mafia + lobby.roleConfig.doctor + lobby.roleConfig.detective + lobby.roleConfig.citizen;
       if (totalRolesConfigured !== lobby.players.length) {
@@ -193,7 +200,7 @@ app.prepare().then(() => {
     socket.on('submitNightAction', ({ lobbyId, targetId }) => {
       const lobby = lobbies.get(lobbyId);
       if (!lobby || lobby.gameState.phase !== 'night') return;
-      const player = lobby.players.find(p => p.socketId === socket.id);
+      const player = getPlayer(lobby, socket.id);
       if (!player || !player.isAlive) return;
 
       player.nightAction = targetId;
@@ -248,8 +255,7 @@ app.prepare().then(() => {
 
     socket.on('playAgain', (lobbyId) => {
       const lobby = lobbies.get(lobbyId);
-      const hostPlayer = lobby?.players.find(p => p.socketId === socket.id);
-      if (!lobby || !hostPlayer || lobby.hostId !== hostPlayer.playerId) return;
+      if (!isHost(lobby, socket.id)) return;
       
       lobby.status = 'waiting';
       lobby.gameState = {
@@ -280,8 +286,7 @@ app.prepare().then(() => {
 
     socket.on('kickPlayer', ({ lobbyId, targetId }) => {
       const lobby = lobbies.get(lobbyId);
-      const hostPlayer = lobby?.players.find(p => p.socketId === socket.id);
-      if (!lobby || !hostPlayer || lobby.hostId !== hostPlayer.playerId || lobby.status !== 'waiting') return;
+      if (!isHost(lobby, socket.id) || lobby.status !== 'waiting') return;
       
       const pIndex = lobby.players.findIndex(p => p.playerId === targetId);
       if (pIndex !== -1) {
@@ -293,8 +298,7 @@ app.prepare().then(() => {
 
     socket.on('pauseGame', (lobbyId) => {
       const lobby = lobbies.get(lobbyId);
-      const hostPlayer = lobby?.players.find(p => p.socketId === socket.id);
-      if (lobby && hostPlayer && lobby.hostId === hostPlayer.playerId) {
+      if (isHost(lobby, socket.id)) {
         lobby.status = 'paused';
         io.to(lobbyId).emit('gameStateUpdate', lobby);
       }
@@ -302,8 +306,7 @@ app.prepare().then(() => {
 
     socket.on('resumeGame', (lobbyId) => {
       const lobby = lobbies.get(lobbyId);
-      const hostPlayer = lobby?.players.find(p => p.socketId === socket.id);
-      if (lobby && hostPlayer && lobby.hostId === hostPlayer.playerId && lobby.status === 'paused') {
+      if (isHost(lobby, socket.id) && lobby.status === 'paused') {
         lobby.status = 'in_progress';
         io.to(lobbyId).emit('gameStateUpdate', lobby);
       }
@@ -311,8 +314,7 @@ app.prepare().then(() => {
 
     socket.on('forceAdvancePhase', (lobbyId) => {
       const lobby = lobbies.get(lobbyId);
-      const hostPlayer = lobby?.players.find(p => p.socketId === socket.id);
-      if (!lobby || !hostPlayer || lobby.hostId !== hostPlayer.playerId) return;
+      if (!isHost(lobby, socket.id)) return;
       
       const phase = lobby.gameState.phase;
       // Reset ready flags
@@ -342,7 +344,10 @@ app.prepare().then(() => {
     lobby.gameState.phase = 'night';
     lobby.gameState.roundNumber += 1;
     lobby.gameState.nightActions = { mafiaTarget: null, doctorSave: null, detectiveCheck: null };
-    lobby.players.forEach(p => p.nightAction = null);
+    lobby.players.forEach(p => {
+       p.nightAction = null;
+       p.detectiveResult = undefined; // clear old results
+    });
     io.to(lobby.lobbyId).emit('gameStateUpdate', lobby);
   }
 
