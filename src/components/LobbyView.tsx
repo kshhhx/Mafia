@@ -31,6 +31,7 @@ export default function LobbyView() {
 
   const totalRoles = lobby.roleConfig.mafia + lobby.roleConfig.doctor + lobby.roleConfig.detective + lobby.roleConfig.citizen;
   const isBalanced = totalRoles === lobby.players.length;
+  const isMafiaAdvantage = lobby.roleConfig.mafia >= (lobby.roleConfig.citizen + lobby.roleConfig.doctor + lobby.roleConfig.detective);
 
   return (
     <div className="flex flex-col p-6 max-w-md mx-auto fade-in">
@@ -44,12 +45,22 @@ export default function LobbyView() {
         <ul className="space-y-3">
           {lobby.players.map(p => (
              <li key={p.playerId} className="flex items-center justify-between">
-               <span className="font-medium text-lg">
-                 {p.displayName} {p.playerId === lobby.hostId && <span className="text-yellow-500 text-sm ml-1">👑</span>}
+               <span className="font-medium text-lg flex items-center">
+                 {p.displayName} {p.playerId === lobby.hostId && <span className="text-yellow-500 text-sm ml-2">👑</span>}
                </span>
-               <span className={`text-sm ${p.isReady ? 'text-green-400' : 'text-gray-500'}`}>
-                 {p.isReady ? 'Ready' : 'Waiting'}
-               </span>
+               <div className="flex items-center space-x-3">
+                 <span className={`text-sm ${p.isReady ? 'text-green-400' : 'text-gray-500'}`}>
+                   {p.isReady ? 'Ready' : 'Waiting'}
+                 </span>
+                 {isHost && p.playerId !== lobby.hostId && (
+                   <button 
+                     onClick={() => socket.emit('kickPlayer', { lobbyId: lobby.lobbyId, targetId: p.playerId })}
+                     className="text-xs text-red-500 hover:text-red-400 bg-red-500/10 hover:bg-red-500/20 px-2 py-1 rounded transition-colors"
+                   >
+                     Kick
+                   </button>
+                 )}
+               </div>
              </li>
           ))}
         </ul>
@@ -94,6 +105,11 @@ export default function LobbyView() {
           {!isBalanced && (
             <div className="mt-4 text-xs text-red-400 bg-red-400/10 p-2 rounded text-center">
               Roles assigned ({totalRoles}) must equal players ({lobby.players.length}).
+            </div>
+          )}
+          {isBalanced && isMafiaAdvantage && (
+            <div className="mt-4 text-xs text-yellow-500 bg-yellow-500/10 p-2 rounded text-center">
+              ⚠️ Warning: Mafia equals or outnumbers the town.
             </div>
           )}
         </div>

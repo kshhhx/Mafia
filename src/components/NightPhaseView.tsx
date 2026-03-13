@@ -41,8 +41,9 @@ export default function NightPhaseView() {
 
        {me.nightAction ? (
           <div className="flex-1 flex flex-col items-center justify-center mt-20">
-             <h3 className="text-2xl font-bold mb-4">Action locked.</h3>
-             <p className="text-gray-500 animate-pulse">Waiting for other players...</p>
+             <div className="w-16 h-16 border-4 border-gray-700 border-t-citizenBlue rounded-full animate-spin mb-6"></div>
+             <h3 className="text-2xl font-bold mb-4 text-white">Action locked.</h3>
+             <p className="text-gray-500 animate-pulse text-center max-w-xs">Waiting for other players to finish their night actions...</p>
           </div>
        ) : (
           <div className="flex-1 flex flex-col">

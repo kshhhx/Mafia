@@ -36,12 +36,12 @@ export default function VotingPhaseView() {
        </div>
 
        {myVoteLocked ? (
-          <div className="flex-1 flex flex-col items-center justify-center">
-             <div className="bg-darkPanel p-8 rounded-full border-4 border-gray-700 shadow-2xl mb-6">
+          <div className="flex-1 flex flex-col items-center justify-center mt-12">
+             <div className="bg-darkPanel p-8 rounded-full border-4 border-gray-700 shadow-2xl mb-6 relative">
                 <span className="text-4xl">🗳️</span>
              </div>
-             <h3 className="text-2xl font-bold mb-2">Vote Locked</h3>
-             <p className="text-gray-500 animate-pulse">Waiting for other players to vote...</p>
+             <h3 className="text-3xl font-bold mb-2 text-white">Vote Locked</h3>
+             <p className="text-gray-500 text-lg animate-pulse text-center px-4">Waiting for the rest of the town to cast their votes...</p>
           </div>
        ) : (
           <div className="flex-1 flex flex-col space-y-3 mt-4">

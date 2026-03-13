@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useGame } from '@/lib/socketClient';
 
@@ -12,10 +12,21 @@ export default function Home() {
   const [joinCode, setJoinCode] = useState('');
   const [mode, setMode] = useState<'home' | 'create' | 'join'>('home');
 
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      const lobbyFromUrl = params.get('lobby');
+      if (lobbyFromUrl) {
+        setJoinCode(lobbyFromUrl.toUpperCase());
+        setMode('join');
+      }
+    }
+  }, []);
   const handleCreate = (e: React.FormEvent) => {
     e.preventDefault();
     if (!name || !socket) return;
-    socket.emit('createLobby', name, (lobbyId: string) => {
+    const sessionId = localStorage.getItem('mafia_sessionId')!;
+    socket.emit('createLobby', { displayName: name, sessionId }, (lobbyId: string) => {
       router.push(`/${lobbyId}`);
     });
   };
@@ -23,7 +34,8 @@ export default function Home() {
   const handleJoin = (e: React.FormEvent) => {
     e.preventDefault();
     if (!name || !joinCode || !socket) return;
-    socket.emit('joinLobby', joinCode.toUpperCase(), name, (success: boolean, msg?: string) => {
+    const sessionId = localStorage.getItem('mafia_sessionId')!;
+    socket.emit('joinLobby', { lobbyId: joinCode.toUpperCase(), displayName: name, sessionId }, (success: boolean, msg?: string) => {
       if (success) {
         router.push(`/${joinCode.toUpperCase()}`);
       } else {
@@ -36,7 +48,9 @@ export default function Home() {
     return (
       <main className="flex min-h-screen flex-col items-center justify-center p-6 fade-in">
         <h1 className="text-6xl font-black tracking-tighter mb-2 text-mafiaRed drop-shadow-[0_0_15px_rgba(239,68,68,0.5)]">MAFIA</h1>
-        <p className="text-gray-400 mb-12 text-center text-lg">The party game of trust and deception.</p>
+        <p className="text-gray-400 mb-8 text-center text-lg max-w-sm leading-snug">
+          Create a lobby, invite friends, get secret roles, and let the app run the game automatically.
+        </p>
         
         <div className="flex flex-col space-y-4 w-full max-w-xs">
           <button 

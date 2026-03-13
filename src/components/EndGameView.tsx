@@ -25,6 +25,9 @@ export default function EndGameView() {
            <p className="text-gray-400 font-medium">
              {isMafiaWin ? 'They outnumber the remaining citizens.' : 'All Mafia have been eliminated.'}
            </p>
+           <div className="mt-4 inline-block px-4 py-1 rounded-full bg-gray-800 border border-gray-700">
+             <span className="text-sm text-gray-400 font-semibold tracking-wide">ROUNDS PLAYED: {lobby.gameState.roundNumber}</span>
+           </div>
         </div>
 
         <div className="w-full max-w-md bg-darkPanel rounded-3xl p-6 shadow-2xl mb-8">
@@ -53,14 +56,11 @@ export default function EndGameView() {
            {lobby.hostId === me.playerId && (
               <button 
                 onClick={() => {
-                  socket.emit('toggleReady', lobby.lobbyId); // A bit hacky, normally re-init room but host can just reload.
-                  // For a real MVP, I would add a direct "playAgain" event to reset state
-                  // Since I haven't implemented it in server in a clean way, simple reload/go home
-                  router.push('/');
+                  socket.emit('playAgain', lobby.lobbyId);
                 }}
-                className="w-full py-4 rounded-xl bg-white text-black font-bold text-lg shadow-lg hover:bg-gray-200 active:scale-95 transition-all"
+                className="w-full py-4 rounded-xl bg-white text-black font-bold text-lg shadow-lg hover:bg-gray-200 active:scale-95 transition-all outline outline-1 outline-gray-400"
               >
-                Back to Dashboard
+                Play Again (Same Lobby)
               </button>
            )}
            {lobby.hostId !== me.playerId && (

@@ -49,7 +49,7 @@ export interface RoleConfig {
 export interface Lobby {
   lobbyId: string;
   hostId: string;
-  status: 'waiting' | 'in_progress' | 'finished';
+  status: 'waiting' | 'in_progress' | 'finished' | 'paused';
   settings: LobbySettings;
   roleConfig: RoleConfig;
   players: Player[];
@@ -64,14 +64,19 @@ export interface ServerToClientEvents {
 }
 
 export interface ClientToServerEvents {
-  createLobby: (displayName: string, callback: (lobbyId: string) => void) => void;
-  joinLobby: (lobbyId: string, displayName: string, callback: (success: boolean, msg?: string) => void) => void;
+  createLobby: (data: { displayName: string, sessionId: string }, callback: (lobbyId: string) => void) => void;
+  joinLobby: (data: { lobbyId: string, displayName: string, sessionId: string }, callback: (success: boolean, msg?: string) => void) => void;
+  reconnectLobby: (data: { lobbyId: string, sessionId: string }) => void;
   updateSettings: (settings: Partial<LobbySettings>) => void;
-  updateRoleConfig: (config: RoleConfig) => void;
+  updateRoleConfig: (data: { lobbyId: string, config: RoleConfig }) => void;
   toggleReady: () => void;
   startGame: () => void;
   submitNightAction: (targetId: string) => void;
   continueToNextPhase: () => void; // Acknowledging announcements
   submitVote: (targetId: string | 'skip') => void;
-  playAgain: () => void;
+  playAgain: (lobbyId: string) => void;
+  kickPlayer: (data: { lobbyId: string, targetId: string }) => void;
+  forceAdvancePhase: (lobbyId: string) => void;
+  pauseGame: (lobbyId: string) => void;
+  resumeGame: (lobbyId: string) => void;
 }

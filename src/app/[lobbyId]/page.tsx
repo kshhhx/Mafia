@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useGame } from '@/lib/socketClient';
 
@@ -15,16 +15,31 @@ import EndGameView from '@/components/EndGameView';
 export default function GameRoom({ params }: { params: { lobbyId: string } }) {
   const router = useRouter();
   const { lobby, me } = useGame();
+  const [connecting, setConnecting] = useState(true);
 
   useEffect(() => {
-    if (!lobby || !me) {
-      // If refreshed or no lobby in memory, go home
-      router.push('/');
+    // Give the socket 2 seconds to seamlessly reconnect
+    const timeout = setTimeout(() => {
+       if (!lobby || !me) {
+          router.push(`/?lobby=${params.lobbyId}`);
+       }
+    }, 2000);
+    
+    if (lobby && me) {
+       setConnecting(false);
+       clearTimeout(timeout);
     }
-  }, [lobby, me, router]);
+    
+    return () => clearTimeout(timeout);
+  }, [lobby, me, router, params.lobbyId]);
 
-  if (!lobby || !me) {
-    return <div className="min-h-screen flex items-center justify-center">Loading...</div>;
+  if (connecting || !lobby || !me) {
+     return (
+       <div className="min-h-screen flex flex-col items-center justify-center bg-black fade-in text-white">
+          <div className="w-12 h-12 border-4 border-gray-700 border-t-mafiaRed rounded-full animate-spin mb-4"></div>
+          <p className="text-gray-500 font-medium tracking-widest uppercase">Connecting to Room...</p>
+       </div>
+     );
   }
 
   const phase = lobby.gameState.phase;

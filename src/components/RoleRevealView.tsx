@@ -38,12 +38,18 @@ export default function RoleRevealView() {
             </div>
 
             <div className="bg-darkPanel p-6 rounded-2xl w-full text-center space-y-4 mb-8">
-               {me.role === 'Citizen' && <p>You have no special powers. Use your intuition to find the Mafia!</p>}
+               {me.role === 'Citizen' && (
+                 <>
+                   <p>You have no special powers. Use your intuition to find the Mafia!</p>
+                   <p className="text-sm text-green-400 mt-2 font-semibold">Win Condition: Eliminate all Mafia.</p>
+                 </>
+               )}
                {me.role === 'Mafia' && (
                  <>
                    <p>Eliminate the citizens at night. Don't get caught.</p>
+                   <p className="text-sm text-green-400 mt-2 font-semibold">Win Condition: Equal or outnumber the Citizens.</p>
                    {mafiaTeammates.length > 0 && (
-                     <div className="mt-4 p-4 bg-red-950/40 rounded-xl">
+                     <div className="mt-4 p-4 bg-red-950/40 rounded-xl border border-red-900/30">
                        <p className="text-sm text-gray-400 mb-2 font-semibold">Your Teammates:</p>
                        <div className="flex flex-wrap justify-center gap-2">
                          {mafiaTeammates.map(m => (
@@ -56,19 +62,37 @@ export default function RoleRevealView() {
                    )}
                  </>
                )}
-               {me.role === 'Doctor' && <p>Each night, choose a player to protect from the Mafia.</p>}
-               {me.role === 'Detective' && <p>Each night, investigate a player to discover if they are Mafia.</p>}
+               {me.role === 'Doctor' && (
+                 <>
+                   <p>Each night, choose a player to protect from the Mafia.</p>
+                   <p className="text-sm text-green-400 mt-2 font-semibold">Win Condition: Eliminate all Mafia.</p>
+                 </>
+               )}
+               {me.role === 'Detective' && (
+                 <>
+                   <p>Each night, investigate a player to discover if they are Mafia.</p>
+                   <p className="text-sm text-green-400 mt-2 font-semibold">Win Condition: Eliminate all Mafia.</p>
+                 </>
+               )}
             </div>
 
             {me.readyToContinue ? (
               <div className="text-gray-500 font-medium animate-pulse">Waiting for other players...</div>
             ) : (
-              <button 
-                onClick={handleContinue}
-                className="w-full py-4 rounded-xl bg-white text-black font-bold text-lg shadow-lg hover:bg-gray-200 active:scale-95 transition-all"
-              >
-                Hide & Continue
-              </button>
+              <div className="w-full space-y-3">
+                <button 
+                  onClick={() => setRevealed(false)}
+                  className="w-full py-3 rounded-xl bg-gray-800 text-gray-300 font-bold text-md shadow-lg hover:bg-gray-700 active:scale-95 transition-all outline outline-1 outline-gray-600"
+                >
+                  Hide Role
+                </button>
+                <button 
+                  onClick={handleContinue}
+                  className="w-full py-4 rounded-xl bg-white text-black font-bold text-lg shadow-lg hover:bg-gray-200 active:scale-95 transition-all"
+                >
+                  Ready, Continue
+                </button>
+              </div>
             )}
          </div>
       )}

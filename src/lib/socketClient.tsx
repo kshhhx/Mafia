@@ -29,9 +29,23 @@ export const SocketProvider = ({ children }: { children: React.ReactNode }) => {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    let storedSessionId = typeof window !== 'undefined' ? localStorage.getItem('mafia_sessionId') : null;
+    if (!storedSessionId && typeof window !== 'undefined') {
+       storedSessionId = Math.random().toString(36).substring(2, 12);
+       localStorage.setItem('mafia_sessionId', storedSessionId);
+    }
+
     if (!socketInstance) {
       socketInstance = io();
       setSocket(socketInstance);
+
+      socketInstance.on('connect', () => {
+         const pathname = window.location.pathname;
+         if (pathname.length > 1 && storedSessionId) {
+            const lobbyIdFromUrl = pathname.substring(1).toUpperCase();
+            socketInstance?.emit('reconnectLobby', { lobbyId: lobbyIdFromUrl, sessionId: storedSessionId });
+         }
+      });
 
       socketInstance.on('gameStateUpdate', (updatedLobby: Lobby) => {
         setLobby(updatedLobby);

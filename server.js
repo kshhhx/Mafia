@@ -25,9 +25,9 @@ app.prepare().then(() => {
   io.on('connection', (socket) => {
     console.log('Client connected:', socket.id);
 
-    socket.on('createLobby', (displayName, callback) => {
+    socket.on('createLobby', ({ displayName, sessionId }, callback) => {
       const lobbyId = generateRoomCode();
-      const playerId = socket.id; // use socket id as simple player ID for MVP
+      const playerId = sessionId; // use sessionId as the persistent player identity
       const newLobby = {
         lobbyId,
         hostId: playerId,
@@ -77,12 +77,17 @@ app.prepare().then(() => {
       socket.emit('privatePlayerUpdate', newLobby.players[0]);
     });
 
-    socket.on('joinLobby', (lobbyId, displayName, callback) => {
+    socket.on('joinLobby', ({ lobbyId, displayName, sessionId }, callback) => {
       const lobby = lobbies.get(lobbyId);
       if (!lobby) return callback(false, 'Lobby not found');
       if (lobby.status !== 'waiting') return callback(false, 'Game already in progress');
 
-      const playerId = socket.id;
+      const playerId = sessionId;
+      
+      // Check if they are already in the lobby
+      if (lobby.players.some(p => p.playerId === playerId)) {
+         return callback(false, 'Already in lobby. Please join via the link or refresh.');
+      }
       const newPlayer = {
         playerId,
         socketId: socket.id,
@@ -221,6 +226,101 @@ app.prepare().then(() => {
       const alivePlayers = lobby.players.filter(p => p.isAlive);
       if (Object.keys(lobby.gameState.voteResults).length === alivePlayers.length) {
         resolveVotingPhase(lobby, io);
+      }
+    });
+
+    socket.on('reconnectLobby', ({ lobbyId, sessionId }) => {
+      const lobby = lobbies.get(lobbyId);
+      if (!lobby) return; // Silent fail if lobby doesn't exist
+
+      const player = lobby.players.find(p => p.playerId === sessionId);
+      if (player) {
+         // Re-attach the new socket ID to the existing player
+         player.socketId = socket.id;
+         socket.join(lobbyId);
+         
+         // Send them their current state privately
+         socket.emit('gameStateUpdate', lobby);
+         socket.emit('privatePlayerUpdate', player);
+      }
+    });
+
+    socket.on('playAgain', (lobbyId) => {
+      const lobby = lobbies.get(lobbyId);
+      if (!lobby || lobby.hostId !== socket.id) return;
+      
+      lobby.status = 'waiting';
+      lobby.gameState = {
+          phase: 'lobby',
+          roundNumber: 1,
+          alivePlayers: lobby.players.map(p => p.playerId),
+          eliminatedPlayers: [],
+          nightActions: { mafiaTarget: null, doctorSave: null, detectiveCheck: null },
+          voteResults: {},
+          winner: null,
+          lastEliminated: null,
+          nightDeath: null,
+          detectiveResult: null,
+      };
+      
+      lobby.players.forEach(p => {
+          p.isAlive = true;
+          p.role = null;
+          p.team = null;
+          p.isReady = false;
+          p.currentVote = null;
+          p.nightAction = null;
+          p.readyToContinue = false;
+      });
+      
+      io.to(lobbyId).emit('gameStateUpdate', lobby);
+    });
+
+    socket.on('kickPlayer', ({ lobbyId, targetId }) => {
+      const lobby = lobbies.get(lobbyId);
+      if (!lobby || lobby.hostId !== socket.id || lobby.status !== 'waiting') return;
+      
+      const pIndex = lobby.players.findIndex(p => p.playerId === targetId);
+      if (pIndex !== -1) {
+        lobby.players.splice(pIndex, 1);
+        lobby.gameState.alivePlayers = lobby.gameState.alivePlayers.filter(id => id !== targetId);
+        io.to(lobbyId).emit('gameStateUpdate', lobby);
+      }
+    });
+
+    socket.on('pauseGame', (lobbyId) => {
+      const lobby = lobbies.get(lobbyId);
+      if (lobby && lobby.hostId === socket.id) {
+        lobby.status = 'paused';
+        io.to(lobbyId).emit('gameStateUpdate', lobby);
+      }
+    });
+
+    socket.on('resumeGame', (lobbyId) => {
+      const lobby = lobbies.get(lobbyId);
+      if (lobby && lobby.hostId === socket.id && lobby.status === 'paused') {
+        lobby.status = 'in_progress';
+        io.to(lobbyId).emit('gameStateUpdate', lobby);
+      }
+    });
+
+    socket.on('forceAdvancePhase', (lobbyId) => {
+      const lobby = lobbies.get(lobbyId);
+      if (!lobby || lobby.hostId !== socket.id) return;
+      
+      const phase = lobby.gameState.phase;
+      // Reset ready flags
+      lobby.players.forEach(p => p.readyToContinue = false);
+
+      if (phase === 'role_reveal' || phase === 'result') {
+         startNightPhase(lobby, io);
+      } else if (phase === 'night') {
+         resolveNightPhase(lobby, io);
+      } else if (phase === 'day') {
+         lobby.gameState.phase = 'voting';
+         io.to(lobbyId).emit('gameStateUpdate', lobby);
+      } else if (phase === 'voting') {
+         resolveVotingPhase(lobby, io);
       }
     });
 
