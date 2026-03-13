@@ -34,7 +34,7 @@ async function runTest() {
 
     // Client 0 creates lobby
     console.log("Host creating lobby...");
-    clients[0].emit("createLobby", "HostPlayer", (id) => {
+    clients[0].emit("createLobby", { displayName: "HostPlayer", sessionId: "session_0" }, (id) => {
         lobbyId = id;
     });
 
@@ -48,7 +48,7 @@ async function runTest() {
     // Clients 1-4 join
     console.log("Other 4 players joining...");
     for (let i = 1; i < 5; i++) {
-        clients[i].emit("joinLobby", lobbyId, `Player${i}`, (success, msg) => {
+        clients[i].emit("joinLobby", { lobbyId, displayName: `Player${i}`, sessionId: `session_${i}` }, (success, msg) => {
             if (!success) console.error(`Player ${i} failed to join: ${msg}`);
         });
     }

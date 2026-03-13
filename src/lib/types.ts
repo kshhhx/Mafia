@@ -13,6 +13,7 @@ export interface Player {
   currentVote: string | null;     // ID of player they are voting to eliminate
   nightAction: string | null;     // ID of target
   readyToContinue: boolean;
+  detectiveResult?: { targetId: string, isMafia: boolean };
 }
 
 export interface LobbySettings {
@@ -36,7 +37,6 @@ export interface GameState {
   winner: Team | null;
   lastEliminated: string | null; // Used for announcement
   nightDeath: string | null; // ID of who died in the night, or "nobody"
-  detectiveResult: { targetId: string, isMafia: boolean } | null;
 }
 
 export interface RoleConfig {

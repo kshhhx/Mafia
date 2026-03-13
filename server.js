@@ -66,7 +66,6 @@ app.prepare().then(() => {
           winner: null,
           lastEliminated: null,
           nightDeath: null,
-          detectiveResult: null,
         }
       };
       
@@ -112,7 +111,8 @@ app.prepare().then(() => {
 
     socket.on('updateRoleConfig', ({ lobbyId, config }) => {
       const lobby = lobbies.get(lobbyId);
-      if (!lobby || lobby.hostId !== socket.id) return;
+      const player = lobby?.players.find(p => p.socketId === socket.id);
+      if (!lobby || !player || lobby.hostId !== player.playerId) return;
       lobby.roleConfig = config;
       io.to(lobbyId).emit('gameStateUpdate', lobby);
     });
@@ -129,7 +129,8 @@ app.prepare().then(() => {
 
     socket.on('startGame', (lobbyId) => {
       const lobby = lobbies.get(lobbyId);
-      if (!lobby || lobby.hostId !== socket.id) return;
+      const player = lobby?.players.find(p => p.socketId === socket.id);
+      if (!lobby || !player || lobby.hostId !== player.playerId) return;
 
       const totalRolesConfigured = lobby.roleConfig.mafia + lobby.roleConfig.doctor + lobby.roleConfig.detective + lobby.roleConfig.citizen;
       if (totalRolesConfigured !== lobby.players.length) {
@@ -202,7 +203,7 @@ app.prepare().then(() => {
       const doctorAlive = lobby.players.filter(p => p.role === 'Doctor' && p.isAlive);
       const detAlive = lobby.players.filter(p => p.role === 'Detective' && p.isAlive);
 
-      const mafiaDone = mafiaAlive.length === 0 || mafiaAlive.some(p => p.nightAction !== null);
+      const mafiaDone = mafiaAlive.length === 0 || mafiaAlive.every(p => p.nightAction !== null);
       const docDone = doctorAlive.length === 0 || doctorAlive.every(p => p.nightAction !== null);
       const detDone = detAlive.length === 0 || detAlive.every(p => p.nightAction !== null);
 
@@ -247,7 +248,8 @@ app.prepare().then(() => {
 
     socket.on('playAgain', (lobbyId) => {
       const lobby = lobbies.get(lobbyId);
-      if (!lobby || lobby.hostId !== socket.id) return;
+      const hostPlayer = lobby?.players.find(p => p.socketId === socket.id);
+      if (!lobby || !hostPlayer || lobby.hostId !== hostPlayer.playerId) return;
       
       lobby.status = 'waiting';
       lobby.gameState = {
@@ -278,7 +280,8 @@ app.prepare().then(() => {
 
     socket.on('kickPlayer', ({ lobbyId, targetId }) => {
       const lobby = lobbies.get(lobbyId);
-      if (!lobby || lobby.hostId !== socket.id || lobby.status !== 'waiting') return;
+      const hostPlayer = lobby?.players.find(p => p.socketId === socket.id);
+      if (!lobby || !hostPlayer || lobby.hostId !== hostPlayer.playerId || lobby.status !== 'waiting') return;
       
       const pIndex = lobby.players.findIndex(p => p.playerId === targetId);
       if (pIndex !== -1) {
@@ -290,7 +293,8 @@ app.prepare().then(() => {
 
     socket.on('pauseGame', (lobbyId) => {
       const lobby = lobbies.get(lobbyId);
-      if (lobby && lobby.hostId === socket.id) {
+      const hostPlayer = lobby?.players.find(p => p.socketId === socket.id);
+      if (lobby && hostPlayer && lobby.hostId === hostPlayer.playerId) {
         lobby.status = 'paused';
         io.to(lobbyId).emit('gameStateUpdate', lobby);
       }
@@ -298,7 +302,8 @@ app.prepare().then(() => {
 
     socket.on('resumeGame', (lobbyId) => {
       const lobby = lobbies.get(lobbyId);
-      if (lobby && lobby.hostId === socket.id && lobby.status === 'paused') {
+      const hostPlayer = lobby?.players.find(p => p.socketId === socket.id);
+      if (lobby && hostPlayer && lobby.hostId === hostPlayer.playerId && lobby.status === 'paused') {
         lobby.status = 'in_progress';
         io.to(lobbyId).emit('gameStateUpdate', lobby);
       }
@@ -306,7 +311,8 @@ app.prepare().then(() => {
 
     socket.on('forceAdvancePhase', (lobbyId) => {
       const lobby = lobbies.get(lobbyId);
-      if (!lobby || lobby.hostId !== socket.id) return;
+      const hostPlayer = lobby?.players.find(p => p.socketId === socket.id);
+      if (!lobby || !hostPlayer || lobby.hostId !== hostPlayer.playerId) return;
       
       const phase = lobby.gameState.phase;
       // Reset ready flags
@@ -342,7 +348,20 @@ app.prepare().then(() => {
 
   function resolveNightPhase(lobby, io) {
     // 1. Gather actions 
-    const mafiaTarget = lobby.players.find(p => p.role === 'Mafia' && p.isAlive && p.nightAction)?.nightAction;
+    const mafiaTargets = lobby.players.filter(p => p.role === 'Mafia' && p.isAlive && p.nightAction).map(p => p.nightAction);
+    let mafiaTarget = null;
+    if (mafiaTargets.length > 0) {
+       const counts = {};
+       let maxVotes = 0;
+       for (const t of mafiaTargets) {
+          counts[t] = (counts[t] || 0) + 1;
+          if (counts[t] > maxVotes) {
+             maxVotes = counts[t];
+             mafiaTarget = t;
+          }
+       }
+    }
+    
     const docSave = lobby.players.find(p => p.role === 'Doctor' && p.isAlive)?.nightAction;
     const detCheck = lobby.players.find(p => p.role === 'Detective' && p.isAlive)?.nightAction;
     
@@ -351,10 +370,8 @@ app.prepare().then(() => {
       const targetPlayer = lobby.players.find(p => p.playerId === detCheck);
       const detPlayer = lobby.players.find(p => p.role === 'Detective' && p.isAlive);
       if (detPlayer && targetPlayer) {
-        io.to(detPlayer.socketId).emit('privatePlayerData', {
-          detResult: { targetId: targetPlayer.playerId, isMafia: targetPlayer.role === 'Mafia'}
-        });
-        lobby.gameState.detectiveResult = { targetId: targetPlayer.playerId, isMafia: targetPlayer.role === 'Mafia'};
+        detPlayer.detectiveResult = { targetId: targetPlayer.playerId, isMafia: targetPlayer.role === 'Mafia'};
+        io.to(detPlayer.socketId).emit('privatePlayerUpdate', detPlayer);
       }
     }
 

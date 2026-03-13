@@ -16,7 +16,7 @@ export default function DayPhaseView() {
 
   // Show detective results only to the detective
   const isDetective = me.role === 'Detective' && me.isAlive;
-  const detResult = lobby.gameState.detectiveResult;
+  const detResult = me.detectiveResult;
   let detTargetName = null;
   if (isDetective && detResult) {
       detTargetName = lobby.players.find(p => p.playerId === detResult.targetId)?.displayName;
