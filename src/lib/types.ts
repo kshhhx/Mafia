@@ -12,6 +12,7 @@ export interface Player {
   isReady: boolean;
   currentVote: string | null;     // ID of player they are voting to eliminate
   nightAction: string | null;     // ID of target
+  readyToContinue: boolean;
 }
 
 export interface LobbySettings {
