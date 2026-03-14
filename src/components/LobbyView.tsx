@@ -1,8 +1,8 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useGame } from '@/lib/socketClient';
-import { ROLE_BRIEFS, ROLE_CONFIG_TO_ROLE } from '@/lib/rules';
+import { GAME_MODE_DETAILS, MYSTERY_MODE_HELP, ROLE_BRIEFS, ROLE_CONFIG_TO_ROLE, ROLE_DISPLAY_NAMES } from '@/lib/rules';
 import type { GameMode, Role, RoleConfig } from '@/lib/types';
 
 const CLASSIC_SETUPS: Record<number, Partial<RoleConfig>> = {
@@ -23,9 +23,9 @@ const ROLE_GROUPS: Array<{ title: string; fields: Array<{ key: keyof RoleConfig;
   {
     title: 'Core Roles',
     fields: [
-      { key: 'bystander', label: 'Bystander' },
+      { key: 'bystander', label: 'Civilian' },
       { key: 'detective', label: 'Detective' },
-      { key: 'thug', label: 'Thug' },
+      { key: 'thug', label: 'Mafia' },
     ],
   },
   {
@@ -85,6 +85,15 @@ function emptyConfig(): RoleConfig {
 export default function LobbyView() {
   const { lobby, me, socket } = useGame();
   const [infoRole, setInfoRole] = useState<Role | null>(null);
+  const [showModeMenu, setShowModeMenu] = useState(false);
+  const [joinUrl, setJoinUrl] = useState('');
+
+  useEffect(() => {
+    if (lobby && typeof window !== 'undefined') {
+      setJoinUrl(`${window.location.origin}/?lobby=${lobby.lobbyId}`);
+    }
+  }, [lobby]);
+
   if (!lobby || !me || !socket) return null;
 
   const isHost = lobby.hostId === me.playerId;
@@ -119,7 +128,13 @@ export default function LobbyView() {
 
   const setMode = (mode: GameMode) => {
     socket.emit('updateSettings', { lobbyId: lobby.lobbyId, settings: { mode } });
+    setShowModeMenu(false);
   };
+
+  const modeDetails = GAME_MODE_DETAILS[lobby.settings.mode];
+  const qrSrc = joinUrl
+    ? `https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(joinUrl)}`
+    : '';
 
   return (
     <div className="flex flex-col p-6 max-w-md mx-auto fade-in">
@@ -196,28 +211,69 @@ export default function LobbyView() {
             </button>
           </div>
 
-          <div className="grid grid-cols-3 gap-2 mb-4">
-            {(['classic', 'loner', 'yakuza'] as GameMode[]).map((mode) => (
+          <div className="mb-4 rounded-2xl border border-gray-800 bg-black/20 p-3">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-xs font-bold uppercase tracking-widest text-gray-500">Game Mode</p>
+                <p className="mt-1 text-base font-semibold text-white">{modeDetails.label}</p>
+                <p className="mt-1 text-xs leading-5 text-gray-400">{modeDetails.description}</p>
+              </div>
               <button
-                key={mode}
-                onClick={() => setMode(mode)}
-                className={`py-2 rounded-lg text-sm font-semibold transition-all ${
-                  lobby.settings.mode === mode ? 'bg-white text-black' : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
-                }`}
+                type="button"
+                onClick={() => setShowModeMenu((current) => !current)}
+                className="rounded-full bg-gray-800 px-3 py-2 text-xs font-semibold text-gray-200 hover:bg-gray-700"
               >
-                {mode}
+                Game Mode
               </button>
-            ))}
+            </div>
+
+            {showModeMenu && (
+              <div className="mt-3 space-y-2">
+                {(['classic', 'loner', 'yakuza'] as GameMode[]).map((mode) => (
+                  <button
+                    key={mode}
+                    type="button"
+                    onClick={() => setMode(mode)}
+                    className={`w-full rounded-2xl border px-3 py-3 text-left transition-all ${
+                      lobby.settings.mode === mode
+                        ? 'border-white/50 bg-white text-black'
+                        : 'border-gray-800 bg-gray-900/70 text-gray-200 hover:bg-gray-800'
+                    }`}
+                  >
+                    <div className="font-semibold">{GAME_MODE_DETAILS[mode].label}</div>
+                    <div className={`mt-1 text-xs leading-5 ${lobby.settings.mode === mode ? 'text-black/75' : 'text-gray-400'}`}>
+                      {GAME_MODE_DETAILS[mode].description}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
 
-          <button
-            onClick={() => socket.emit('updateSettings', { lobbyId: lobby.lobbyId, settings: { mysteryMode: !lobby.settings.mysteryMode } })}
-            className={`w-full mb-5 py-3 rounded-xl text-sm font-semibold transition-all ${
-              lobby.settings.mysteryMode ? 'bg-yellow-500/20 text-yellow-300 border border-yellow-500/40' : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
-            }`}
-          >
-            Mystery Mode: {lobby.settings.mysteryMode ? 'On' : 'Off'}
-          </button>
+          <div className="mb-5 rounded-2xl border border-gray-800 bg-black/20 p-3">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-sm font-semibold text-white">Mystery Mode</p>
+                <p className="mt-1 text-xs leading-5 text-gray-400">{MYSTERY_MODE_HELP}</p>
+              </div>
+              <button
+                type="button"
+                className="mt-0.5 h-6 w-6 rounded-full bg-gray-700 text-xs text-white hover:bg-gray-600"
+                aria-label="What is Mystery Mode?"
+                title={MYSTERY_MODE_HELP}
+              >
+                i
+              </button>
+            </div>
+            <button
+              onClick={() => socket.emit('updateSettings', { lobbyId: lobby.lobbyId, settings: { mysteryMode: !lobby.settings.mysteryMode } })}
+              className={`mt-3 w-full py-3 rounded-xl text-sm font-semibold transition-all ${
+                lobby.settings.mysteryMode ? 'bg-yellow-500/20 text-yellow-300 border border-yellow-500/40' : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
+              }`}
+            >
+              Mystery Mode: {lobby.settings.mysteryMode ? 'On' : 'Off'}
+            </button>
+          </div>
 
           <div className="space-y-6 max-h-[28rem] overflow-y-auto pr-1">
             {visibleRoleGroups.map((group) => (
@@ -229,7 +285,7 @@ export default function LobbyView() {
                     return (
                       <div key={key} className="flex items-center justify-between rounded-2xl bg-black/20 px-3 py-3">
                         <div className="flex items-center gap-2">
-                          <span className="font-medium">{label}</span>
+                          <span className="font-medium">{ROLE_DISPLAY_NAMES[role] || label}</span>
                           <button
                             type="button"
                             onClick={() => setInfoRole(role)}
@@ -255,6 +311,17 @@ export default function LobbyView() {
               </section>
             ))}
           </div>
+        </div>
+      )}
+
+      {joinUrl && (
+        <div className="bg-darkPanel rounded-3xl p-4 mb-5 shadow-lg border border-gray-800 text-center">
+          <h3 className="text-sm font-bold uppercase tracking-widest text-gray-400">Quick Join</h3>
+          <p className="mt-2 text-xs leading-5 text-gray-400">Scan to open the join page with this room code already filled in.</p>
+          <div className="mt-4 inline-flex rounded-[2rem] bg-white p-3 shadow-lg">
+            <img src={qrSrc} alt={`QR code to join room ${lobby.lobbyId}`} className="h-44 w-44 rounded-2xl" />
+          </div>
+          <p className="mt-3 break-all text-xs text-gray-500">{joinUrl}</p>
         </div>
       )}
 
@@ -287,7 +354,7 @@ export default function LobbyView() {
           <div className="mx-auto mt-24 max-w-md rounded-3xl border border-gray-700 bg-darkerBg shadow-2xl">
             <div className="flex items-center justify-between px-5 py-4 border-b border-gray-800">
               <div>
-                <h3 className="text-xl font-black">{infoRole}</h3>
+                <h3 className="text-xl font-black">{ROLE_DISPLAY_NAMES[infoRole] || infoRole}</h3>
                 <p className="text-sm text-gray-400">Quick role brief</p>
               </div>
               <button onClick={() => setInfoRole(null)} className="rounded-full bg-gray-800 px-3 py-1 text-sm hover:bg-gray-700">

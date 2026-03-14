@@ -98,9 +98,10 @@ function emptyRoleConfig() {
 }
 
 function generateRoomCode() {
+  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
   let code = '';
   do {
-    code = Math.random().toString(36).substring(2, 6).toUpperCase();
+    code = Array.from({ length: 6 }, () => alphabet[Math.floor(Math.random() * alphabet.length)]).join('');
   } while (lobbies.has(code));
   return code;
 }

@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { GAME_HELP, ROLE_BRIEFS } from '@/lib/rules';
+import { GAME_HELP, ROLE_BRIEFS, ROLE_DISPLAY_NAMES } from '@/lib/rules';
 import type { Lobby, Role } from '@/lib/types';
 
 export default function HelpPanel({ lobby }: { lobby: Lobby | null }) {
@@ -90,7 +90,7 @@ export default function HelpPanel({ lobby }: { lobby: Lobby | null }) {
                   <div className="space-y-3">
                     {visibleRoles.map((role) => (
                       <div key={role} className="rounded-2xl border border-gray-800 bg-black/20 p-3">
-                        <div className="font-bold">{role}</div>
+                        <div className="font-bold">{ROLE_DISPLAY_NAMES[role] || role}</div>
                         <p className="text-sm text-gray-300 mt-1">{ROLE_BRIEFS[role].summary}</p>
                         <p className="text-sm text-gray-400 mt-1">{ROLE_BRIEFS[role].ability}</p>
                       </div>

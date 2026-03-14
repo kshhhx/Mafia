@@ -107,11 +107,11 @@ export default function Home() {
         {mode === 'join' && (
           <input 
             type="text" 
-            placeholder="Room Code (e.g. ABCD)" 
+            placeholder="Room Code (e.g. A1B2C3)" 
             value={joinCode}
             onChange={(e) => setJoinCode(e.target.value.toUpperCase())}
             className="w-full p-4 rounded-xl bg-darkPanel text-white outline-none focus:ring-2 focus:ring-mafiaRed uppercase"
-            maxLength={4}
+            maxLength={6}
             required
           />
         )}

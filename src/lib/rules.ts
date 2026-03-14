@@ -1,5 +1,10 @@
 import type { Role, RoleConfig } from './types';
 
+export const ROLE_DISPLAY_NAMES: Partial<Record<Role, string>> = {
+  Bystander: 'Civilian',
+  Thug: 'Mafia',
+};
+
 export const ROLE_BRIEFS: Record<Role, { summary: string; ability: string; minPlayers: number }> = {
   Bystander: {
     summary: 'Core civilian with no night action.',
@@ -139,3 +144,21 @@ export const GAME_HELP = {
     'Voting: each eligible player casts one vote or abstains.',
   ],
 };
+
+export const GAME_MODE_DETAILS = {
+  classic: {
+    label: 'Classic',
+    description: 'The standard Mafia setup with one criminal team and the easiest learning curve.',
+  },
+  loner: {
+    label: 'Loner',
+    description: 'Adds one solo wildcard role that is trying to outlast everyone else.',
+  },
+  yakuza: {
+    label: 'Yakuza',
+    description: 'Introduces a second criminal faction that competes with the Mafia team.',
+  },
+} as const;
+
+export const MYSTERY_MODE_HELP =
+  'Mystery Mode keeps role cards hidden during the game, so eliminations reveal less information until the ending.';
