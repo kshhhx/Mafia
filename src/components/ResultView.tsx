@@ -8,6 +8,17 @@ export default function ResultView() {
 
   const victim = lobby.gameState.lastEliminated ? lobby.players.find((player) => player.playerId === lobby.gameState.lastEliminated) : null;
   const shouldRevealRoles = lobby.settings.revealRoleOnDeath && !lobby.settings.mysteryMode;
+  const voteTotals = Object.entries(lobby.gameState.voteResults)
+    .map(([targetId, total]) => ({
+      targetId,
+      total,
+      label: targetId === 'skip' ? 'Abstain' : lobby.players.find((player) => player.playerId === targetId)?.displayName || 'Unknown',
+    }))
+    .sort((left, right) => right.total - left.total);
+  const voteBreakdown = Object.entries(lobby.gameState.voteBreakdown).map(([playerId, targetId]) => ({
+    voter: lobby.players.find((player) => player.playerId === playerId)?.displayName || 'Unknown',
+    target: targetId === 'skip' ? 'Abstain' : lobby.players.find((player) => player.playerId === targetId)?.displayName || 'Unknown',
+  }));
 
   return (
     <div className="flex flex-col items-center justify-center p-6 min-h-screen text-center fade-in bg-gradient-to-b from-red-900 to-darkerBg">
@@ -31,6 +42,33 @@ export default function ResultView() {
           </div>
         )}
       </div>
+
+      {voteTotals.length > 0 && (
+        <div className="w-full max-w-sm rounded-3xl border border-gray-700 bg-black/20 p-4 mb-6 text-left">
+          <h3 className="text-xs font-bold uppercase tracking-widest text-gray-400 mb-3">Vote Totals</h3>
+          <div className="space-y-2">
+            {voteTotals.map((entry) => (
+              <div key={entry.targetId} className="flex items-center justify-between rounded-2xl bg-white/5 px-4 py-3 text-sm text-gray-200">
+                <span>{entry.label}</span>
+                <span className="font-bold">{entry.total}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {!lobby.settings.mysteryMode && voteBreakdown.length > 0 && (
+        <div className="w-full max-w-sm rounded-3xl border border-gray-700 bg-black/20 p-4 mb-6 text-left">
+          <h3 className="text-xs font-bold uppercase tracking-widest text-gray-400 mb-3">Who Voted For Whom</h3>
+          <div className="space-y-2">
+            {voteBreakdown.map((entry) => (
+              <div key={`${entry.voter}-${entry.target}`} className="rounded-2xl bg-white/5 px-4 py-3 text-sm text-gray-200">
+                {entry.voter} voted for {entry.target}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="w-full max-w-sm p-4 text-center mt-auto mb-8 text-gray-400">Night is approaching...</div>
 

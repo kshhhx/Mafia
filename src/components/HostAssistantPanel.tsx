@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useGame } from '@/lib/socketClient';
 import type { Lobby, Player, Role } from '@/lib/types';
 
@@ -158,8 +158,13 @@ function getModeratorDetails(lobby: Lobby) {
 export default function HostAssistantPanel() {
   const { lobby, me, socket } = useGame();
   const details = useMemo(() => (lobby ? getModeratorDetails(lobby) : null), [lobby]);
+  const [pendingAction, setPendingAction] = useState<string | null>(null);
 
   if (!lobby || !me || !socket || lobby.hostId !== me.playerId || !details || lobby.gameState.phase === 'lobby') return null;
+
+  useEffect(() => {
+    setPendingAction(null);
+  }, [lobby.gameState.phase]);
 
   return (
     <div className="flex min-h-screen items-center justify-center p-6 fade-in">
@@ -189,10 +194,13 @@ export default function HostAssistantPanel() {
           {details.primaryAction && (
             <button
               type="button"
-              onClick={() => socket.emit('continueToNextPhase', lobby.lobbyId)}
+              onClick={() => {
+                setPendingAction(details.primaryAction!.label);
+                socket.emit('continueToNextPhase', lobby.lobbyId);
+              }}
               className="rounded-xl bg-white px-5 py-3 text-sm font-bold text-black hover:bg-gray-200"
             >
-              {details.primaryAction.label}
+              {pendingAction === details.primaryAction.label ? 'Action Received...' : details.primaryAction.label}
             </button>
           )}
           <button

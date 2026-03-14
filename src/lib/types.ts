@@ -82,7 +82,8 @@ export interface GameState {
   roundNumber: number;
   alivePlayers: string[];
   eliminatedPlayers: string[];
-  voteResults: Record<string, string>;
+  voteResults: Record<string, number>;
+  voteBreakdown: Record<string, string>;
   winner: Team | 'Draw' | null;
   lastEliminated: string | null;
   nightDeaths: string[];

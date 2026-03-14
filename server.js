@@ -165,6 +165,7 @@ function createLobbyState(hostPlayer) {
       alivePlayers: [hostPlayer.playerId],
       eliminatedPlayers: [],
       voteResults: {},
+      voteBreakdown: {},
       winner: null,
       lastEliminated: null,
       nightDeaths: [],
@@ -278,6 +279,7 @@ function resetForNewGame(lobby) {
     alivePlayers: participantPlayers(lobby).map((player) => player.playerId),
     eliminatedPlayers: [],
     voteResults: {},
+    voteBreakdown: {},
     winner: null,
     lastEliminated: null,
     nightDeaths: [],
@@ -486,6 +488,7 @@ function startNightPhase(lobby, io) {
   lobby.gameState.nightDeaths = [];
   lobby.gameState.lastEliminated = null;
   lobby.gameState.voteResults = {};
+  lobby.gameState.voteBreakdown = {};
   lobby.gameState.dawnAnnouncements = [];
   lobby.players.forEach(resetPlayerRoundState);
   io.to(lobby.lobbyId).emit('gameStateUpdate', lobby);
@@ -604,7 +607,11 @@ function resolveNightPhase(lobby, io) {
     scheduledKills.push({ targetId: player.abilityTarget, source: player.role });
   }
 
-  for (const kill of scheduledKills) {
+  const resolvedKills = lobby.settings.mode === 'classic' && scheduledKills.length > 1
+    ? [scheduledKills[0]]
+    : scheduledKills;
+
+  for (const kill of resolvedKills) {
     const victim = lobby.players.find((candidate) => candidate.playerId === kill.targetId);
     if (!victim || !victim.isAlive) continue;
     if (killImmunePlayers.has(victim.playerId)) continue;
@@ -688,6 +695,8 @@ function resolveNightPhase(lobby, io) {
 
 function resolveVotingPhase(lobby, io) {
   const voteEntries = [];
+  const voteCounts = {};
+  const voteBreakdown = {};
 
   for (const player of lobby.players.filter((candidate) => candidate.isAlive)) {
     if (player.isJailed || player.isSilenced) continue;
@@ -698,6 +707,9 @@ function resolveVotingPhase(lobby, io) {
       if (hypnotist?.currentVote) countedVote = hypnotist.currentVote;
     }
     if (!countedVote) continue;
+
+    voteBreakdown[player.playerId] = countedVote;
+    voteCounts[countedVote] = (voteCounts[countedVote] || 0) + 1;
     if (countedVote === 'skip') continue;
 
     const weight = player.role === 'Judge' ? 2 : 1;
@@ -717,7 +729,8 @@ function resolveVotingPhase(lobby, io) {
     }
   }
 
-  lobby.gameState.voteResults = {};
+  lobby.gameState.voteResults = voteCounts;
+  lobby.gameState.voteBreakdown = voteBreakdown;
   lobby.players.forEach((player) => {
     player.currentVote = null;
     player.readyToContinue = false;
@@ -845,6 +858,7 @@ app.prepare().then(() => {
       lobby.gameState.nightDeaths = [];
       lobby.gameState.lastEliminated = null;
       lobby.gameState.voteResults = {};
+      lobby.gameState.voteBreakdown = {};
       lobby.gameState.winner = null;
       lobby.gameState.jailedPlayerIds = [];
       lobby.gameState.dawnAnnouncements = [];
@@ -979,7 +993,6 @@ app.prepare().then(() => {
       }
 
       player.currentVote = targetId;
-      lobby.gameState.voteResults[player.playerId] = targetId;
       io.to(lobbyId).emit('gameStateUpdate', lobby);
 
       const voters = lobby.players.filter((candidate) => candidate.isAlive && !candidate.isJailed && !candidate.isSilenced);

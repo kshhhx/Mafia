@@ -1,13 +1,20 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useGame } from '@/lib/socketClient';
 
 export default function VotingPhaseView() {
   const { lobby, me, socket } = useGame();
   const [selectedVote, setSelectedVote] = useState<string | null>(null);
+  const [submittingVote, setSubmittingVote] = useState(false);
 
   if (!lobby || !me || !socket) return null;
+
+  useEffect(() => {
+    if (me.currentVote !== null && submittingVote) {
+      setSubmittingVote(false);
+    }
+  }, [me.currentVote, submittingVote]);
 
   const alivePlayers = lobby.players.filter((player) => player.isAlive);
   const myVoteLocked = me.currentVote !== null;
@@ -76,13 +83,17 @@ export default function VotingPhaseView() {
       {!myVoteLocked && (
         <div className="fixed bottom-0 left-0 right-0 p-6 bg-gradient-to-t from-darkerBg via-darkerBg to-transparent flex justify-center pb-safe">
           <button
-            onClick={() => selectedVote && socket.emit('submitVote', { lobbyId: lobby.lobbyId, targetId: selectedVote })}
-            disabled={!selectedVote}
+            onClick={() => {
+              if (!selectedVote) return;
+              setSubmittingVote(true);
+              socket.emit('submitVote', { lobbyId: lobby.lobbyId, targetId: selectedVote });
+            }}
+            disabled={!selectedVote || submittingVote}
             className={`w-full max-w-md py-4 rounded-xl font-bold text-lg shadow-lg active:scale-95 transition-all ${
-              selectedVote ? 'bg-mafiaRed text-white hover:bg-red-600' : 'bg-gray-800 text-gray-500 cursor-not-allowed'
+              selectedVote && !submittingVote ? 'bg-mafiaRed text-white hover:bg-red-600' : 'bg-gray-800 text-gray-500 cursor-not-allowed'
             }`}
           >
-            Cast Vote
+            {submittingVote ? 'Vote Received...' : 'Cast Vote'}
           </button>
         </div>
       )}

@@ -39,7 +39,7 @@ export default function DayPhaseView() {
           <div className="flex flex-col items-center">
             <span className="text-6xl mb-4">🌙</span>
             <h3 className="text-3xl font-bold text-green-400 mb-2">Nobody died</h3>
-            <p className="text-gray-300">{lobby.gameState.roundNumber === 1 ? 'The opening night never has any deaths.' : 'Protections, blocks, or indecision kept everyone alive.'}</p>
+            <p className="text-gray-300">Protections, blocks, or indecision kept everyone alive.</p>
           </div>
         )}
       </div>

@@ -103,6 +103,11 @@ export default function LobbyView() {
   const waitingFor = Math.max(0, intendedCount - joinedCount);
   const roleDelta = intendedCount - totalRoles;
   const canStart = waitingFor === 0 && roleDelta === 0;
+  const idealConfig = CLASSIC_SETUPS[intendedCount] || { bystander: Math.max(0, intendedCount - 2), detective: 1, thug: 1 };
+  const idealDeviation = Object.keys(lobby.roleConfig).reduce((sum, key) => {
+    const typedKey = key as keyof RoleConfig;
+    return sum + Math.abs((lobby.roleConfig[typedKey] || 0) - ((idealConfig as Partial<RoleConfig>)[typedKey] || 0));
+  }, 0) / 2;
 
   const visibleRoleGroups = useMemo(
     () =>
@@ -290,16 +295,18 @@ export default function LobbyView() {
                 <p className="text-xs font-bold uppercase tracking-widest text-gray-400">Role Balance</p>
                 <p className="mt-1 text-sm text-white">{totalRoles}/{intendedCount} roles configured</p>
               </div>
-              <span className={`rounded-full px-3 py-1 text-xs font-bold ${roleDelta === 0 ? 'bg-emerald-500/20 text-emerald-200' : 'bg-amber-500/20 text-amber-200'}`}>
-                {roleDelta === 0 ? 'Balanced' : roleDelta > 0 ? `${roleDelta} too many` : `${Math.abs(roleDelta)} missing`}
+              <span className={`rounded-full px-3 py-1 text-xs font-bold ${roleDelta === 0 && idealDeviation === 0 ? 'bg-emerald-500/20 text-emerald-200' : 'bg-amber-500/20 text-amber-200'}`}>
+                {roleDelta > 0 ? `${roleDelta} too many` : roleDelta < 0 ? `${Math.abs(roleDelta)} missing` : idealDeviation > 0 ? `${idealDeviation} off ideal` : 'Balanced'}
               </span>
             </div>
             <p className="mt-2 text-xs leading-5 text-gray-300">
-              {roleDelta === 0
-                ? 'The cast matches the intended player count.'
-                : roleDelta > 0
-                  ? 'Remove roles until the cast matches the intended player count.'
-                  : 'Add more roles to match the intended player count before starting.'}
+              {roleDelta === 0 && idealDeviation === 0
+                ? 'The cast matches the intended player count and the ideal range.'
+                : roleDelta === 0
+                  ? 'The cast fits the player count, but it is outside the suggested role balance for this table size.'
+                  : roleDelta > 0
+                    ? 'Remove roles until the cast matches the intended player count.'
+                    : 'Add more roles to match the intended player count before starting.'}
             </p>
           </div>
 

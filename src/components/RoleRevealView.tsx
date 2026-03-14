@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useGame } from '@/lib/socketClient';
 
 const ROLE_COPY: Record<string, string> = {
@@ -29,8 +29,15 @@ const ROLE_COPY: Record<string, string> = {
 export default function RoleRevealView() {
   const { lobby, me, socket } = useGame();
   const [revealed, setRevealed] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
 
   if (!lobby || !me || !socket || !me.role || !me.team) return null;
+
+  useEffect(() => {
+    if (me.readyToContinue && submitting) {
+      setSubmitting(false);
+    }
+  }, [me.readyToContinue, submitting]);
 
   const teammates = lobby.players.filter(
     (player) => player.playerId !== me.playerId && player.team === me.team && (me.team === 'Mafia' || me.team === 'Yakuza'),
@@ -81,8 +88,14 @@ export default function RoleRevealView() {
               <button onClick={() => setRevealed(false)} className="w-full py-3 rounded-xl bg-gray-800 text-gray-300 font-bold text-md shadow-lg hover:bg-gray-700 active:scale-95 transition-all outline outline-1 outline-gray-600">
                 Hide Role
               </button>
-              <button onClick={() => socket.emit('continueToNextPhase', lobby.lobbyId)} className="w-full py-4 rounded-xl bg-white text-black font-bold text-lg shadow-lg hover:bg-gray-200 active:scale-95 transition-all">
-                Ready, Continue
+              <button
+                onClick={() => {
+                  setSubmitting(true);
+                  socket.emit('continueToNextPhase', lobby.lobbyId);
+                }}
+                className="w-full py-4 rounded-xl bg-white text-black font-bold text-lg shadow-lg hover:bg-gray-200 active:scale-95 transition-all"
+              >
+                {submitting ? 'Ready Received...' : 'Ready, Continue'}
               </button>
             </div>
           )}
