@@ -43,10 +43,10 @@ export default function HelpPanel({ lobby }: { lobby: Lobby | null }) {
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="fixed top-4 right-4 z-40 h-11 w-11 rounded-full bg-white text-black font-black shadow-lg hover:bg-gray-200 transition-colors"
-        aria-label="Open game help"
+        className="fixed top-4 right-4 z-40 rounded-full bg-white px-4 py-3 text-sm font-bold text-black shadow-lg hover:bg-gray-200 transition-colors"
+        aria-label="Open game rules"
       >
-        i
+        Game Rules
       </button>
 
       {open && (

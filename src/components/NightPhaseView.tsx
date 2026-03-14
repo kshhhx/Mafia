@@ -7,25 +7,25 @@ import type { AbilityAction, Player } from '@/lib/types';
 function roleInstructions(role: Player['role'], firstNight: boolean) {
   switch (role) {
     case 'Thug':
-      return firstNight ? 'First night: wake up and learn your Mafia teammates.' : 'Vote on the shared Mafia victim.';
+      return firstNight ? 'Step 1: review your Mafia teammates below. Step 2: vote on tonight’s victim.' : 'Vote on the shared Mafia victim.';
     case 'Thief':
-      return firstNight ? 'Learn your Mafia teammates, then block one player.' : 'Choose the Mafia victim and block one player.';
+      return firstNight ? 'Step 1: review your Mafia teammates. Step 2: choose the Mafia victim. Step 3: block one player.' : 'Choose the Mafia victim and block one player.';
     case 'Lawyer':
-      return firstNight ? 'Learn your Mafia teammates, then investigate one player.' : 'Choose the Mafia victim and investigate one player.';
+      return firstNight ? 'Step 1: review your Mafia teammates. Step 2: choose the Mafia victim. Step 3: investigate one player.' : 'Choose the Mafia victim and investigate one player.';
     case 'Godfather':
-      return firstNight ? 'Learn your Mafia teammates, then silence one player for tomorrow.' : 'Choose the Mafia victim and silence one player.';
+      return firstNight ? 'Step 1: review your Mafia teammates. Step 2: choose the Mafia victim. Step 3: silence one player for tomorrow.' : 'Choose the Mafia victim and silence one player.';
     case 'Snitch':
-      return firstNight ? 'Learn your Mafia teammates, then badmouth one player.' : 'Choose the Mafia victim and badmouth one player.';
+      return firstNight ? 'Step 1: review your Mafia teammates. Step 2: choose the Mafia victim. Step 3: badmouth one player.' : 'Choose the Mafia victim and badmouth one player.';
     case 'Yakuza':
-      return firstNight ? 'First night has no kills.' : 'Choose the Yakuza victim.';
+      return firstNight ? 'Review your Yakuza teammates, then choose tonight’s victim.' : 'Choose the Yakuza victim.';
     case 'Detective':
     case 'Priest':
-      return firstNight ? 'Choose whether to investigate or kill. The opening night never has any deaths.' : 'Choose whether to investigate or kill.';
+      return 'Choose whether to investigate or kill.';
     case 'Sheriff':
     case 'Psycho':
-      return firstNight ? 'Choose a victim, but no one dies on the opening night.' : 'Choose a victim.';
+      return 'Choose a victim.';
     case 'FemmeFatale':
-      return firstNight ? 'Choose a victim, but Bystanders survive and the opening night never has any deaths.' : 'Choose a victim. Bystanders survive your attack.';
+      return 'Choose a victim. Bystanders survive your attack.';
     case 'Journalist':
       return 'Choose two players to compare their teams.';
     case 'Jailer':
@@ -41,7 +41,7 @@ function roleInstructions(role: Player['role'], firstNight: boolean) {
     case 'Hypnotist':
       return 'Hypnotize one player so their vote follows yours tomorrow.';
     case 'Impostor':
-      return firstNight ? 'Pretend to be Mafia and wake with them. You still submit a Mafia vote on later nights.' : 'Pretend to be Mafia and join the shared Mafia vote.';
+      return firstNight ? 'Review the Mafia team below, then submit the Mafia victim with them.' : 'Pretend to be Mafia and join the shared Mafia vote.';
     default:
       return '';
   }
@@ -101,8 +101,8 @@ export default function NightPhaseView() {
   const firstNight = lobby.gameState.firstNight;
   const isMafia = me.team === 'Mafia' || me.role === 'Impostor';
   const isYakuza = me.team === 'Yakuza';
-  const needsMafiaVote = isMafia && !firstNight;
-  const needsYakuzaVote = isYakuza && !firstNight;
+  const needsMafiaVote = isMafia;
+  const needsYakuzaVote = isYakuza;
   const actions = allowedActions(me.role);
   const hasAbility = actions.length > 0;
   const compareMode = abilityAction === 'compare';
@@ -178,7 +178,8 @@ export default function NightPhaseView() {
         <div className="flex-1 flex flex-col gap-6">
           {needsMafiaVote && (
             <section>
-              <h3 className="text-sm font-bold uppercase tracking-widest text-red-300 mb-3">Choose the Mafia victim</h3>
+              <h3 className="text-sm font-bold uppercase tracking-widest text-red-300 mb-1">{hasAbility ? 'Step 1: Choose the Mafia victim' : 'Choose the Mafia victim'}</h3>
+              <p className="text-xs text-gray-500 mb-3">Everyone on the Mafia team should pick the same target.</p>
               <div className="grid grid-cols-2 gap-3">
                 {selectablePlayers.map((player) => (
                   <button key={player.playerId} onClick={() => setMafiaTarget(player.playerId)} className={`p-4 rounded-2xl transition-all ${mafiaTarget === player.playerId ? 'bg-mafiaRed text-white font-bold scale-105' : 'bg-darkPanel text-gray-300 hover:bg-gray-700'}`}>
@@ -191,7 +192,8 @@ export default function NightPhaseView() {
 
           {needsYakuzaVote && (
             <section>
-              <h3 className="text-sm font-bold uppercase tracking-widest text-yellow-300 mb-3">Choose the Yakuza victim</h3>
+              <h3 className="text-sm font-bold uppercase tracking-widest text-yellow-300 mb-1">{hasAbility ? 'Step 1: Choose the Yakuza victim' : 'Choose the Yakuza victim'}</h3>
+              <p className="text-xs text-gray-500 mb-3">Everyone on the Yakuza team should pick the same target.</p>
               <div className="grid grid-cols-2 gap-3">
                 {selectablePlayers.map((player) => (
                   <button key={player.playerId} onClick={() => setYakuzaTarget(player.playerId)} className={`p-4 rounded-2xl transition-all ${yakuzaTarget === player.playerId ? 'bg-yellow-200 text-black font-bold scale-105' : 'bg-darkPanel text-gray-300 hover:bg-gray-700'}`}>
@@ -204,7 +206,8 @@ export default function NightPhaseView() {
 
           {hasAbility && (
             <section>
-              <h3 className="text-sm font-bold uppercase tracking-widest text-citizenBlue mb-3">Use your role ability</h3>
+              <h3 className="text-sm font-bold uppercase tracking-widest text-citizenBlue mb-1">{needsMafiaVote || needsYakuzaVote ? 'Step 2: Use your role ability' : 'Use your role ability'}</h3>
+              <p className="text-xs text-gray-500 mb-3">Follow the action shown for your role, then lock it in once you are done.</p>
 
               {actions.length > 1 && (
                 <div className="grid grid-cols-2 gap-3 mb-4">

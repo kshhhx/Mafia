@@ -133,15 +133,15 @@ export const ROLE_CONFIG_TO_ROLE: Record<keyof RoleConfig, Role> = {
 
 export const GAME_HELP = {
   overview:
-    'One host creates the room, sets the expected player count, and starts once everyone has joined. The host can play as a normal participant, act as the moderator, or let the built-in AI host read phase prompts aloud on the host device.',
+    'One host creates the room, acts as the moderator, sets the expected player count, and starts once everyone has joined. The host guides the room while the app handles private role reveals, night actions, and vote collection.',
   interface:
-    'Use the bottom action button whenever the app asks you to lock in a choice. If nothing is shown for your role during a phase, wait for the rest of the table. The host can also open moderator guidance or replay AI announcements between phases.',
+    'Use the bottom action button whenever the app asks you to lock in a choice. If nothing is shown for your role during a phase, wait quietly for the moderator. The Game Rules button stays available the whole time.',
   flow: [
-    'Lobby: host sets the expected table size, chooses whether to play or moderate, reviews the suggested cast, and starts the game.',
+    'Lobby: host sets the expected player count, reviews the cast, and starts once the room is full.',
     'Role Reveal: each player privately checks their role before continuing.',
-    'Night: only roles with actions see inputs; everyone else waits.',
-    'Day: read the dawn results and discuss suspects.',
-    'Voting: each eligible player casts one vote or abstains.',
+    'Night: only roles with actions see prompts; everyone else waits quietly while the app resolves the night automatically.',
+    'Day: the moderator reads the dawn results, opens discussion, and then opens voting when the room is ready.',
+    'Voting: each eligible player casts one vote, then the app reveals the result automatically.',
   ],
 };
 

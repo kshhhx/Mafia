@@ -3,8 +3,8 @@
 import { useGame } from '@/lib/socketClient';
 
 export default function ResultView() {
-  const { lobby, socket, me } = useGame();
-  if (!lobby || !me || !socket) return null;
+  const { lobby, me } = useGame();
+  if (!lobby || !me) return null;
 
   const victim = lobby.gameState.lastEliminated ? lobby.players.find((player) => player.playerId === lobby.gameState.lastEliminated) : null;
   const shouldRevealRoles = lobby.settings.revealRoleOnDeath && !lobby.settings.mysteryMode;
@@ -35,13 +35,9 @@ export default function ResultView() {
       <div className="w-full max-w-sm p-4 text-center mt-auto mb-8 text-gray-400">Night is approaching...</div>
 
       <div className="fixed bottom-0 left-0 right-0 p-6 bg-gradient-to-t from-darkerBg via-darkerBg to-transparent flex justify-center pb-safe">
-        {me.readyToContinue ? (
-          <div className="text-gray-500 font-medium py-4">Waiting for others...</div>
-        ) : (
-          <button onClick={() => socket.emit('continueToNextPhase', lobby.lobbyId)} className="w-full max-w-sm py-4 rounded-xl bg-white text-black font-bold text-lg shadow-lg hover:bg-gray-200 active:scale-95 transition-all outline outline-1 outline-gray-600">
-            Proceed to Night
-          </button>
-        )}
+        <div className="w-full max-w-sm rounded-2xl bg-black/20 px-6 py-4 text-center text-sm text-gray-400">
+          Wait for the moderator to begin the next night.
+        </div>
       </div>
     </div>
   );

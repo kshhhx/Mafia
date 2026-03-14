@@ -45,14 +45,14 @@ export default function GameRoom({ params }: { params: { lobbyId: string } }) {
   }
 
   const phase = lobby.gameState.phase;
-  const isModeratorHost = lobby.settings.hostRoleMode === 'moderator' && lobby.hostId === me.playerId;
+  const isModeratorHost = lobby.hostId === me.playerId;
 
   return (
     <div className="min-h-screen bg-darkerBg text-white pb-safe">
       <HelpPanel lobby={lobby} />
       {phase === 'lobby' && <LobbyView />}
       {phase !== 'lobby' && phase !== 'ended' && isModeratorHost ? (
-        <HostAssistantPanel expanded />
+        <HostAssistantPanel />
       ) : (
         <>
           {phase === 'role_reveal' && <RoleRevealView />}
@@ -63,7 +63,6 @@ export default function GameRoom({ params }: { params: { lobbyId: string } }) {
           {phase === 'ended' && <EndGameView />}
         </>
       )}
-      {!isModeratorHost && phase !== 'lobby' && phase !== 'ended' && <HostAssistantPanel />}
     </div>
   );
 }

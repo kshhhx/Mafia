@@ -71,7 +71,7 @@ export default function RoleRevealView() {
                 </div>
               </div>
             )}
-            {lobby.gameState.firstNight && <p className="text-xs text-gray-400">Opening night: teams learn their allies and resolve abilities, but nobody dies.</p>}
+            {lobby.gameState.firstNight && <p className="text-xs text-gray-400">Opening night begins immediately after everyone is ready. Mafia and any active roles will act before the first day begins.</p>}
           </div>
 
           {me.readyToContinue ? (

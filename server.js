@@ -154,7 +154,7 @@ function createLobbyState(hostPlayer) {
       mysteryMode: false,
       mode: 'classic',
       intendedPlayerCount: 6,
-      hostRoleMode: 'player',
+      hostRoleMode: 'moderator',
       announcementMode: 'manual',
     },
     roleConfig: getRecommendedClassicConfig(6),
@@ -176,7 +176,7 @@ function createLobbyState(hostPlayer) {
 }
 
 function hostIsModerator(lobby) {
-  return lobby.settings.hostRoleMode === 'moderator';
+  return true;
 }
 
 function isParticipant(lobby, player) {
@@ -413,12 +413,12 @@ function needsAbility(role) {
 }
 
 function needsMafiaVote(player, lobby) {
-  if (!player.isAlive || lobby.gameState.firstNight) return false;
+  if (!player.isAlive) return false;
   return player.team === 'Mafia' || player.role === 'Impostor';
 }
 
 function needsYakuzaVote(player, lobby) {
-  if (!player.isAlive || lobby.gameState.firstNight) return false;
+  if (!player.isAlive) return false;
   return player.team === 'Yakuza';
 }
 
@@ -582,27 +582,25 @@ function resolveNightPhase(lobby, io) {
 
   const scheduledKills = [];
 
-  if (!firstNight) {
-    const mafiaTarget = chooseMajority(
-      mafiaParticipants(lobby)
-        .filter((player) => !player.isJailed)
-        .map((player) => player.mafiaVoteTarget)
-        .filter(Boolean),
-    );
-    if (mafiaTarget) scheduledKills.push({ targetId: mafiaTarget, source: 'Mafia' });
+  const mafiaTarget = chooseMajority(
+    mafiaParticipants(lobby)
+      .filter((player) => !player.isJailed)
+      .map((player) => player.mafiaVoteTarget)
+      .filter(Boolean),
+  );
+  if (mafiaTarget) scheduledKills.push({ targetId: mafiaTarget, source: 'Mafia' });
 
-    const yakuzaTarget = chooseMajority(
-      yakuzaParticipants(lobby)
-        .filter((player) => !player.isJailed)
-        .map((player) => player.yakuzaVoteTarget)
-        .filter(Boolean),
-    );
-    if (yakuzaTarget) scheduledKills.push({ targetId: yakuzaTarget, source: 'Yakuza' });
-  }
+  const yakuzaTarget = chooseMajority(
+    yakuzaParticipants(lobby)
+      .filter((player) => !player.isJailed)
+      .map((player) => player.yakuzaVoteTarget)
+      .filter(Boolean),
+  );
+  if (yakuzaTarget) scheduledKills.push({ targetId: yakuzaTarget, source: 'Yakuza' });
 
   for (const player of alivePlayers) {
     if (blockedPlayers.has(player.playerId) || player.isJailed) continue;
-    if (player.abilityAction !== 'kill' || !player.abilityTarget || firstNight) continue;
+    if (player.abilityAction !== 'kill' || !player.abilityTarget) continue;
     scheduledKills.push({ targetId: player.abilityTarget, source: player.role });
   }
 
@@ -786,11 +784,11 @@ app.prepare().then(() => {
     socket.on('updateSettings', ({ lobbyId, settings }) => {
       const lobby = lobbies.get(lobbyId);
       if (!isHost(lobby, socket.id) || lobby.status !== 'waiting') return;
-      const minCount = hostIsModerator(lobby) || settings.hostRoleMode === 'moderator' ? 0 : 1;
+      const minCount = 0;
       const intendedPlayerCount = settings.intendedPlayerCount == null
         ? lobby.settings.intendedPlayerCount
         : Math.max(minCount, Math.min(16, settings.intendedPlayerCount));
-      lobby.settings = { ...lobby.settings, ...settings, intendedPlayerCount };
+      lobby.settings = { ...lobby.settings, ...settings, hostRoleMode: 'moderator', announcementMode: 'manual', intendedPlayerCount };
       lobby.settings.intendedPlayerCount = Math.max(
         lobby.settings.intendedPlayerCount,
         participantPlayers(lobby).length,
@@ -860,20 +858,31 @@ app.prepare().then(() => {
       const lobby = lobbies.get(lobbyId);
       if (!lobby) return;
       const player = getPlayer(lobby, socket.id);
-      if (!player || !player.isAlive) return;
+      if (!player) return;
 
-      player.readyToContinue = true;
-      const alivePlayers = lobby.players.filter((candidate) => candidate.isAlive);
-      if (!alivePlayers.every((candidate) => candidate.readyToContinue)) {
-        io.to(lobbyId).emit('gameStateUpdate', lobby);
+      if (lobby.gameState.phase === 'role_reveal') {
+        if (!player.isAlive) return;
+        player.readyToContinue = true;
+        const alivePlayers = lobby.players.filter((candidate) => candidate.isAlive);
+        if (!alivePlayers.every((candidate) => candidate.readyToContinue)) {
+          io.to(lobbyId).emit('gameStateUpdate', lobby);
+          return;
+        }
+
+        lobby.players.forEach((candidate) => {
+          candidate.readyToContinue = false;
+        });
+        startNightPhase(lobby, io);
         return;
       }
+
+      if (!isHost(lobby, socket.id)) return;
 
       lobby.players.forEach((candidate) => {
         candidate.readyToContinue = false;
       });
 
-      if (lobby.gameState.phase === 'role_reveal' || lobby.gameState.phase === 'result') {
+      if (lobby.gameState.phase === 'result') {
         startNightPhase(lobby, io);
       } else if (lobby.gameState.phase === 'day') {
         lobby.gameState.phase = 'voting';
