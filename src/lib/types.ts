@@ -19,6 +19,8 @@ export type Role = CivilianRole | MafiaRole | YakuzaRole | LonerRole;
 export type Team = 'Civilians' | 'Mafia' | 'Yakuza' | 'Loner';
 export type GamePhase = 'lobby' | 'role_reveal' | 'night' | 'day' | 'voting' | 'result' | 'ended';
 export type GameMode = 'classic' | 'loner' | 'yakuza';
+export type HostRoleMode = 'player' | 'moderator';
+export type AnnouncementMode = 'manual' | 'ai';
 
 export type AbilityAction =
   | 'kill'
@@ -71,6 +73,8 @@ export interface LobbySettings {
   mysteryMode: boolean;
   mode: GameMode;
   intendedPlayerCount: number;
+  hostRoleMode: HostRoleMode;
+  announcementMode: AnnouncementMode;
 }
 
 export interface GameState {

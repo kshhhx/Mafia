@@ -12,6 +12,7 @@ import VotingPhaseView from '@/components/VotingPhaseView';
 import ResultView from '@/components/ResultView';
 import EndGameView from '@/components/EndGameView';
 import HelpPanel from '@/components/HelpPanel';
+import HostAssistantPanel from '@/components/HostAssistantPanel';
 
 export default function GameRoom({ params }: { params: { lobbyId: string } }) {
   const router = useRouter();
@@ -44,17 +45,25 @@ export default function GameRoom({ params }: { params: { lobbyId: string } }) {
   }
 
   const phase = lobby.gameState.phase;
+  const isModeratorHost = lobby.settings.hostRoleMode === 'moderator' && lobby.hostId === me.playerId;
 
   return (
     <div className="min-h-screen bg-darkerBg text-white pb-safe">
       <HelpPanel lobby={lobby} />
       {phase === 'lobby' && <LobbyView />}
-      {phase === 'role_reveal' && <RoleRevealView />}
-      {phase === 'night' && <NightPhaseView />}
-      {phase === 'day' && <DayPhaseView />}
-      {phase === 'voting' && <VotingPhaseView />}
-      {phase === 'result' && <ResultView />}
-      {phase === 'ended' && <EndGameView />}
+      {phase !== 'lobby' && phase !== 'ended' && isModeratorHost ? (
+        <HostAssistantPanel expanded />
+      ) : (
+        <>
+          {phase === 'role_reveal' && <RoleRevealView />}
+          {phase === 'night' && <NightPhaseView />}
+          {phase === 'day' && <DayPhaseView />}
+          {phase === 'voting' && <VotingPhaseView />}
+          {phase === 'result' && <ResultView />}
+          {phase === 'ended' && <EndGameView />}
+        </>
+      )}
+      {!isModeratorHost && phase !== 'lobby' && phase !== 'ended' && <HostAssistantPanel />}
     </div>
   );
 }

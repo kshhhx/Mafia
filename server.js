@@ -154,6 +154,8 @@ function createLobbyState(hostPlayer) {
       mysteryMode: false,
       mode: 'classic',
       intendedPlayerCount: 6,
+      hostRoleMode: 'player',
+      announcementMode: 'manual',
     },
     roleConfig: getRecommendedClassicConfig(6),
     players: [hostPlayer],
@@ -173,6 +175,18 @@ function createLobbyState(hostPlayer) {
   };
 }
 
+function hostIsModerator(lobby) {
+  return lobby.settings.hostRoleMode === 'moderator';
+}
+
+function isParticipant(lobby, player) {
+  return !(hostIsModerator(lobby) && player.playerId === lobby.hostId);
+}
+
+function participantPlayers(lobby) {
+  return lobby.players.filter((player) => isParticipant(lobby, player));
+}
+
 function getPlayer(lobby, socketId) {
   return lobby?.players.find((player) => player.socketId === socketId);
 }
@@ -183,7 +197,7 @@ function isHost(lobby, socketId) {
 }
 
 function syncAlivePlayers(lobby) {
-  lobby.gameState.alivePlayers = lobby.players.filter((player) => player.isAlive).map((player) => player.playerId);
+  lobby.gameState.alivePlayers = lobby.players.filter((player) => player.isAlive && isParticipant(lobby, player)).map((player) => player.playerId);
 }
 
 function totalConfiguredRoles(config) {
@@ -197,8 +211,9 @@ function hasRoleInConfig(config, keys) {
 function validateConfig(lobby) {
   const config = lobby.roleConfig;
   const total = totalConfiguredRoles(config);
-  if (total !== lobby.players.length) return 'Role count must match player count';
-  if (lobby.players.length < lobby.settings.intendedPlayerCount) return 'Wait for the rest of the table to join before starting';
+  const playerCount = participantPlayers(lobby).length;
+  if (total !== playerCount) return 'Role count must match player count';
+  if (playerCount < lobby.settings.intendedPlayerCount) return 'Wait for the rest of the table to join before starting';
   if (lobby.settings.mode === 'classic' && (config.yakuza || config.femmeFatale || config.impostor || config.psycho)) {
     return 'Classic mode cannot include Yakuza or Loner roles';
   }
@@ -260,7 +275,7 @@ function resetForNewGame(lobby) {
   lobby.gameState = {
     phase: 'lobby',
     roundNumber: 0,
-    alivePlayers: lobby.players.map((player) => player.playerId),
+    alivePlayers: participantPlayers(lobby).map((player) => player.playerId),
     eliminatedPlayers: [],
     voteResults: {},
     winner: null,
@@ -272,7 +287,7 @@ function resetForNewGame(lobby) {
   };
 
   lobby.players.forEach((player) => {
-    player.isAlive = true;
+    player.isAlive = isParticipant(lobby, player);
     player.role = null;
     player.team = null;
     player.isReady = false;
@@ -312,7 +327,7 @@ function checkWinCondition(lobby) {
   const civilians = teamCount(lobby, 'Civilians');
   const yakuza = teamCount(lobby, 'Yakuza');
   const loner = teamCount(lobby, 'Loner');
-  const alivePlayers = lobby.players.filter((player) => player.isAlive);
+  const alivePlayers = lobby.players.filter((player) => player.isAlive && isParticipant(lobby, player));
 
   if (lobby.settings.mode === 'yakuza') {
     if (alivePlayers.length === 2 && mafia === 1 && yakuza === 1) {
@@ -757,7 +772,7 @@ app.prepare().then(() => {
 
       const newPlayer = createPlayer({ playerId: sessionId, socketId: socket.id, displayName });
       lobby.players.push(newPlayer);
-      lobby.settings.intendedPlayerCount = Math.max(lobby.settings.intendedPlayerCount, lobby.players.length);
+      lobby.settings.intendedPlayerCount = Math.max(lobby.settings.intendedPlayerCount, participantPlayers(lobby).length);
       if (lobby.settings.mode === 'classic') {
         lobby.roleConfig = getRecommendedClassicConfig(lobby.settings.intendedPlayerCount);
       }
@@ -771,13 +786,22 @@ app.prepare().then(() => {
     socket.on('updateSettings', ({ lobbyId, settings }) => {
       const lobby = lobbies.get(lobbyId);
       if (!isHost(lobby, socket.id) || lobby.status !== 'waiting') return;
+      const minCount = hostIsModerator(lobby) || settings.hostRoleMode === 'moderator' ? 0 : 1;
       const intendedPlayerCount = settings.intendedPlayerCount == null
         ? lobby.settings.intendedPlayerCount
-        : Math.max(lobby.players.length, Math.min(16, settings.intendedPlayerCount));
+        : Math.max(minCount, Math.min(16, settings.intendedPlayerCount));
       lobby.settings = { ...lobby.settings, ...settings, intendedPlayerCount };
+      lobby.settings.intendedPlayerCount = Math.max(
+        lobby.settings.intendedPlayerCount,
+        participantPlayers(lobby).length,
+      );
       if (lobby.settings.mode === 'classic') {
         lobby.roleConfig = getRecommendedClassicConfig(lobby.settings.intendedPlayerCount);
       }
+      lobby.players.forEach((player) => {
+        player.isAlive = player.role ? player.isAlive : isParticipant(lobby, player);
+      });
+      syncAlivePlayers(lobby);
       io.to(lobbyId).emit('gameStateUpdate', lobby);
     });
 
@@ -799,15 +823,21 @@ app.prepare().then(() => {
       }
 
       const rolePool = buildRolePool(lobby.roleConfig);
-      lobby.players.forEach((player, index) => {
-        player.role = rolePool[index].role;
-        player.team = rolePool[index].team;
-        player.isAlive = true;
+      const participants = participantPlayers(lobby);
+      lobby.players.forEach((player) => {
+        player.role = null;
+        player.team = null;
+        player.isAlive = isParticipant(lobby, player);
         player.isReady = false;
         player.isJailed = false;
         player.isSilenced = false;
         player.hypnotizedBy = null;
         resetPlayerRoundState(player);
+      });
+      participants.forEach((player, index) => {
+        player.role = rolePool[index].role;
+        player.team = rolePool[index].team;
+        player.isAlive = true;
       });
 
       lobby.status = 'in_progress';
@@ -975,7 +1005,7 @@ app.prepare().then(() => {
       const playerIndex = lobby.players.findIndex((player) => player.playerId === targetId);
       if (playerIndex === -1) return;
       lobby.players.splice(playerIndex, 1);
-      lobby.settings.intendedPlayerCount = Math.max(lobby.players.length, Math.min(lobby.settings.intendedPlayerCount, 16));
+      lobby.settings.intendedPlayerCount = Math.max(participantPlayers(lobby).length, Math.min(lobby.settings.intendedPlayerCount, 16));
       if (lobby.settings.mode === 'classic') {
         lobby.roleConfig = getRecommendedClassicConfig(lobby.settings.intendedPlayerCount);
       }

@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useGame } from '@/lib/socketClient';
 import { GAME_MODE_DETAILS, MYSTERY_MODE_HELP, ROLE_BRIEFS, ROLE_CONFIG_TO_ROLE, ROLE_DISPLAY_NAMES } from '@/lib/rules';
-import type { GameMode, Role, RoleConfig } from '@/lib/types';
+import type { AnnouncementMode, GameMode, HostRoleMode, Role, RoleConfig } from '@/lib/types';
 
 const CLASSIC_SETUPS: Record<number, Partial<RoleConfig>> = {
   6: { bystander: 4, detective: 1, thug: 1 },
@@ -97,7 +97,8 @@ export default function LobbyView() {
   if (!lobby || !me || !socket) return null;
 
   const isHost = lobby.hostId === me.playerId;
-  const joinedCount = lobby.players.length;
+  const hostIsModerator = lobby.settings.hostRoleMode === 'moderator';
+  const joinedCount = lobby.players.length - (hostIsModerator ? 1 : 0);
   const intendedCount = lobby.settings.intendedPlayerCount;
   const effectiveCount = Math.max(joinedCount, intendedCount);
   const totalRoles = Object.values(lobby.roleConfig).reduce((sum, count) => sum + count, 0);
@@ -131,6 +132,14 @@ export default function LobbyView() {
     setShowModeMenu(false);
   };
 
+  const setHostRoleMode = (hostRoleMode: HostRoleMode) => {
+    socket.emit('updateSettings', { lobbyId: lobby.lobbyId, settings: { hostRoleMode } });
+  };
+
+  const setAnnouncementMode = (announcementMode: AnnouncementMode) => {
+    socket.emit('updateSettings', { lobbyId: lobby.lobbyId, settings: { announcementMode } });
+  };
+
   const modeDetails = GAME_MODE_DETAILS[lobby.settings.mode];
   const qrSrc = joinUrl
     ? `https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(joinUrl)}`
@@ -142,19 +151,25 @@ export default function LobbyView() {
         <h2 className="text-gray-500 font-semibold tracking-[0.25em] uppercase text-xs mb-2">Room Code</h2>
         <h1 className="text-5xl font-black tracking-[0.15em] text-mafiaRed">{lobby.lobbyId}</h1>
         <p className="text-gray-400 mt-3 text-sm max-w-sm mx-auto">
-          Host sets the expected table size, everyone joins, then the host starts when the room is ready.
+          Host sets the expected table size, chooses how moderation works, and starts when the table is ready.
         </p>
       </div>
 
       <div className="bg-darkPanel rounded-3xl p-4 mb-5 shadow-lg border border-gray-800">
         <div className="flex items-center justify-between">
           <div>
-            <h3 className="text-sm font-bold uppercase tracking-widest text-gray-400">Table Size</h3>
+            <h3 className="text-sm font-bold uppercase tracking-widest text-gray-400">
+              {hostIsModerator ? 'Players In Game' : 'Table Size'}
+            </h3>
             <p className="text-2xl font-black text-white mt-1">
               {joinedCount}/{intendedCount}
             </p>
             <p className="text-xs text-gray-500 mt-1">
-              {waitingFor > 0 ? `Waiting for ${waitingFor} more player${waitingFor === 1 ? '' : 's'}.` : 'Everyone has joined. The host can start any time.'}
+              {waitingFor > 0
+                ? `Waiting for ${waitingFor} more player${waitingFor === 1 ? '' : 's'}.`
+                : hostIsModerator
+                  ? 'Moderator is separate. The player table is ready.'
+                  : 'Everyone has joined. The host can start any time.'}
             </p>
           </div>
 
@@ -184,7 +199,12 @@ export default function LobbyView() {
           {lobby.players.map((player) => (
             <li key={player.playerId} className="flex items-center justify-between rounded-2xl bg-black/20 px-4 py-3">
               <span className="font-medium text-lg flex items-center">
-                {player.displayName} {player.playerId === lobby.hostId && <span className="text-yellow-500 text-sm ml-2">Host</span>}
+                {player.displayName}{' '}
+                {player.playerId === lobby.hostId && (
+                  <span className="text-yellow-500 text-sm ml-2">
+                    {hostIsModerator ? 'Moderator' : 'Host'}
+                  </span>
+                )}
               </span>
               {isHost && player.playerId !== lobby.hostId && (
                 <button
@@ -209,6 +229,58 @@ export default function LobbyView() {
             <button onClick={applyClassic} className="text-xs bg-gray-700 px-3 py-1 rounded-full hover:bg-gray-600 transition-colors">
               Suggested Cast
             </button>
+          </div>
+
+          <div className="mb-4 rounded-2xl border border-gray-800 bg-black/20 p-3">
+            <p className="text-xs font-bold uppercase tracking-widest text-gray-500">Host Role</p>
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              {([
+                { key: 'player', label: 'Play In Game', description: 'Host joins the role cast and plays normally.' },
+                { key: 'moderator', label: 'Be Moderator', description: 'Host stays out of the role cast and guides the room.' },
+              ] as const).map((option) => (
+                <button
+                  key={option.key}
+                  type="button"
+                  onClick={() => setHostRoleMode(option.key)}
+                  className={`rounded-2xl border px-3 py-3 text-left transition-all ${
+                    lobby.settings.hostRoleMode === option.key
+                      ? 'border-white/50 bg-white text-black'
+                      : 'border-gray-800 bg-gray-900/70 text-gray-200 hover:bg-gray-800'
+                  }`}
+                >
+                  <div className="font-semibold">{option.label}</div>
+                  <div className={`mt-1 text-xs leading-5 ${lobby.settings.hostRoleMode === option.key ? 'text-black/75' : 'text-gray-400'}`}>
+                    {option.description}
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="mb-4 rounded-2xl border border-gray-800 bg-black/20 p-3">
+            <p className="text-xs font-bold uppercase tracking-widest text-gray-500">Phase Announcements</p>
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              {([
+                { key: 'manual', label: 'Host Prompts', description: 'Show a script the host can read aloud.' },
+                { key: 'ai', label: 'AI Host Voice', description: 'Auto-play spoken phase prompts on the host device.' },
+              ] as const).map((option) => (
+                <button
+                  key={option.key}
+                  type="button"
+                  onClick={() => setAnnouncementMode(option.key)}
+                  className={`rounded-2xl border px-3 py-3 text-left transition-all ${
+                    lobby.settings.announcementMode === option.key
+                      ? 'border-white/50 bg-white text-black'
+                      : 'border-gray-800 bg-gray-900/70 text-gray-200 hover:bg-gray-800'
+                  }`}
+                >
+                  <div className="font-semibold">{option.label}</div>
+                  <div className={`mt-1 text-xs leading-5 ${lobby.settings.announcementMode === option.key ? 'text-black/75' : 'text-gray-400'}`}>
+                    {option.description}
+                  </div>
+                </button>
+              ))}
+            </div>
           </div>
 
           <div className="mb-4 rounded-2xl border border-gray-800 bg-black/20 p-3">
@@ -327,7 +399,9 @@ export default function LobbyView() {
 
       {!isHost && (
         <div className="bg-darkPanel rounded-3xl p-4 mb-5 shadow-lg border border-gray-800 text-sm text-gray-300 leading-6">
-          The host is setting the table. Once everyone has joined, the game will begin when the host starts it.
+          {hostIsModerator
+            ? 'The host will act as moderator for this game. Once the player table is full, they can start the session.'
+            : 'The host is setting the table. Once everyone has joined, the game will begin when the host starts it.'}
         </div>
       )}
 
@@ -340,11 +414,11 @@ export default function LobbyView() {
               canStart ? 'bg-mafiaRed text-white hover:bg-red-600 cursor-pointer' : 'bg-gray-800 text-gray-500 cursor-not-allowed'
             }`}
           >
-            {waitingFor > 0 ? `Waiting For ${waitingFor} More` : 'Start Game'}
+            {waitingFor > 0 ? `Waiting For ${waitingFor} More` : hostIsModerator ? 'Start Moderated Game' : 'Start Game'}
           </button>
         ) : (
           <div className="w-full py-4 rounded-xl text-center bg-black/20 text-gray-500 font-medium">
-            Waiting for host to start
+            Waiting for {hostIsModerator ? 'moderator' : 'host'} to start
           </div>
         )}
       </div>
