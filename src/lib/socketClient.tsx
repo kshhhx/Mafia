@@ -37,32 +37,41 @@ export const SocketProvider = ({ children }: { children: React.ReactNode }) => {
 
     if (!socketInstance) {
       socketInstance = io();
-      setSocket(socketInstance);
-
-      socketInstance.on('connect', () => {
-         const pathname = window.location.pathname;
-         if (pathname.length > 1 && storedSessionId) {
-            const lobbyIdFromUrl = pathname.substring(1).toUpperCase();
-            socketInstance?.emit('reconnectLobby', { lobbyId: lobbyIdFromUrl, sessionId: storedSessionId });
-         }
-      });
-
-      socketInstance.on('gameStateUpdate', (updatedLobby: Lobby) => {
-        setLobby(updatedLobby);
-      });
-
-      socketInstance.on('privatePlayerUpdate', (updatedPlayer: Player) => {
-        setMe(updatedPlayer);
-      });
-
-      socketInstance.on('error', (msg: string) => {
-        setError(msg);
-        setTimeout(() => setError(null), 3000);
-      });
     }
 
+    setSocket(socketInstance);
+
+    const handleConnect = () => {
+      const pathname = window.location.pathname;
+      if (pathname.length > 1 && storedSessionId) {
+        const lobbyIdFromUrl = pathname.substring(1).toUpperCase();
+        socketInstance?.emit('reconnectLobby', { lobbyId: lobbyIdFromUrl, sessionId: storedSessionId });
+      }
+    };
+
+    const handleGameStateUpdate = (updatedLobby: Lobby) => {
+      setLobby(updatedLobby);
+    };
+
+    const handlePrivatePlayerUpdate = (updatedPlayer: Player) => {
+      setMe(updatedPlayer);
+    };
+
+    const handleError = (msg: string) => {
+      setError(msg);
+      setTimeout(() => setError(null), 3000);
+    };
+
+    socketInstance.on('connect', handleConnect);
+    socketInstance.on('gameStateUpdate', handleGameStateUpdate);
+    socketInstance.on('privatePlayerUpdate', handlePrivatePlayerUpdate);
+    socketInstance.on('error', handleError);
+
     return () => {
-      // Don't disconnect on unmount in dev or fast refresh breaks it
+      socketInstance?.off('connect', handleConnect);
+      socketInstance?.off('gameStateUpdate', handleGameStateUpdate);
+      socketInstance?.off('privatePlayerUpdate', handlePrivatePlayerUpdate);
+      socketInstance?.off('error', handleError);
     };
   }, []);
 

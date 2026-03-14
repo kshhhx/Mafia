@@ -3,6 +3,10 @@
 @tailwind utilities;
 
 @layer base {
+  html {
+    font-family: "Avenir Next", Avenir, "Segoe UI", sans-serif;
+  }
+
   body {
     @apply bg-darkerBg text-white;
   }

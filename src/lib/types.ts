@@ -1,6 +1,45 @@
-export type Role = 'Citizen' | 'Mafia' | 'Doctor' | 'Detective';
-export type Team = 'Citizens' | 'Mafia';
+export type CivilianRole =
+  | 'Bystander'
+  | 'Nurse'
+  | 'Bodyguard'
+  | 'Vixen'
+  | 'Hypnotist'
+  | 'Journalist'
+  | 'Detective'
+  | 'Jailer'
+  | 'Priest'
+  | 'Judge'
+  | 'Sheriff';
+
+export type MafiaRole = 'Thug' | 'Thief' | 'Lawyer' | 'Godfather' | 'Snitch';
+export type YakuzaRole = 'Yakuza';
+export type LonerRole = 'FemmeFatale' | 'Impostor' | 'Psycho';
+
+export type Role = CivilianRole | MafiaRole | YakuzaRole | LonerRole;
+export type Team = 'Civilians' | 'Mafia' | 'Yakuza' | 'Loner';
 export type GamePhase = 'lobby' | 'role_reveal' | 'night' | 'day' | 'voting' | 'result' | 'ended';
+export type GameMode = 'classic' | 'loner' | 'yakuza';
+
+export type AbilityAction =
+  | 'kill'
+  | 'investigate'
+  | 'protect'
+  | 'block'
+  | 'compare'
+  | 'silence'
+  | 'badmouth'
+  | 'hypnotize'
+  | 'jail'
+  | null;
+
+export interface InvestigationResult {
+  targetId?: string;
+  role?: Role;
+  team?: Team;
+  compareTargetIds?: string[];
+  sameTeam?: boolean;
+  message?: string;
+}
 
 export interface Player {
   playerId: string;
@@ -10,40 +49,64 @@ export interface Player {
   role: Role | null;
   team: Team | null;
   isReady: boolean;
-  currentVote: string | null;     // ID of player they are voting to eliminate
-  nightAction: string | null;     // ID of target
+  currentVote: string | null;
+  mafiaVoteTarget: string | null;
+  yakuzaVoteTarget: string | null;
+  abilityTarget: string | null;
+  secondaryAbilityTarget: string | null;
+  abilityAction: AbilityAction;
   readyToContinue: boolean;
-  detectiveResult?: { targetId: string, isMafia: boolean };
+  investigationResult?: InvestigationResult;
+  isJailed: boolean;
+  isSilenced: boolean;
+  hypnotizedBy: string | null;
+  badmouthedTargetId: string | null;
+  revealedToPlayerIds: string[];
 }
 
 export interface LobbySettings {
   revealRoleOnDeath: boolean;
-  discussionTimer: number; // 0 = off, else minutes
-  nightActionTimer: number; // 0 = off, else seconds
-  doctorCanSelfSave: boolean;
+  discussionTimer: number;
+  nightActionTimer: number;
+  mysteryMode: boolean;
+  mode: GameMode;
 }
 
 export interface GameState {
   phase: GamePhase;
   roundNumber: number;
-  alivePlayers: string[];     // IDs
-  eliminatedPlayers: string[];// IDs
-  nightActions: {
-    mafiaTarget: string | null;
-    doctorSave: string | null;
-    detectiveCheck: string | null;
-  };
-  voteResults: Record<string, string>; // VoterId -> TargetId
-  winner: Team | null;
-  lastEliminated: string | null; // Used for announcement
-  nightDeath: string | null; // ID of who died in the night, or "nobody"
+  alivePlayers: string[];
+  eliminatedPlayers: string[];
+  voteResults: Record<string, string>;
+  winner: Team | 'Draw' | null;
+  lastEliminated: string | null;
+  nightDeaths: string[];
+  firstNight: boolean;
+  jailedPlayerIds: string[];
+  dawnAnnouncements: string[];
 }
 
 export interface RoleConfig {
-  mafia: number;
-  doctor: number;
+  bystander: number;
+  nurse: number;
+  bodyguard: number;
+  vixen: number;
+  hypnotist: number;
+  journalist: number;
   detective: number;
-  citizen: number;
+  jailer: number;
+  priest: number;
+  judge: number;
+  sheriff: number;
+  thug: number;
+  thief: number;
+  lawyer: number;
+  godfather: number;
+  snitch: number;
+  yakuza: number;
+  femmeFatale: number;
+  impostor: number;
+  psycho: number;
 }
 
 export interface Lobby {
@@ -56,7 +119,6 @@ export interface Lobby {
   gameState: GameState;
 }
 
-// Socket Events Definition
 export interface ServerToClientEvents {
   gameStateUpdate: (lobby: Lobby) => void;
   privatePlayerUpdate: (player: Player) => void;
@@ -64,18 +126,25 @@ export interface ServerToClientEvents {
 }
 
 export interface ClientToServerEvents {
-  createLobby: (data: { displayName: string, sessionId: string }, callback: (lobbyId: string) => void) => void;
-  joinLobby: (data: { lobbyId: string, displayName: string, sessionId: string }, callback: (success: boolean, msg?: string) => void) => void;
-  reconnectLobby: (data: { lobbyId: string, sessionId: string }) => void;
-  updateSettings: (settings: Partial<LobbySettings>) => void;
-  updateRoleConfig: (data: { lobbyId: string, config: RoleConfig }) => void;
+  createLobby: (data: { displayName: string; sessionId: string }, callback: (lobbyId: string) => void) => void;
+  joinLobby: (data: { lobbyId: string; displayName: string; sessionId: string }, callback: (success: boolean, msg?: string) => void) => void;
+  reconnectLobby: (data: { lobbyId: string; sessionId: string }) => void;
+  updateRoleConfig: (data: { lobbyId: string; config: RoleConfig }) => void;
+  updateSettings: (data: { lobbyId: string; settings: Partial<LobbySettings> }) => void;
   toggleReady: () => void;
   startGame: () => void;
-  submitNightAction: (targetId: string) => void;
-  continueToNextPhase: () => void; // Acknowledging announcements
+  submitNightAction: (data: {
+    lobbyId: string;
+    mafiaTargetId?: string | null;
+    yakuzaTargetId?: string | null;
+    abilityTargetId?: string | null;
+    secondaryAbilityTargetId?: string | null;
+    abilityAction?: AbilityAction;
+  }) => void;
+  continueToNextPhase: () => void;
   submitVote: (targetId: string | 'skip') => void;
   playAgain: (lobbyId: string) => void;
-  kickPlayer: (data: { lobbyId: string, targetId: string }) => void;
+  kickPlayer: (data: { lobbyId: string; targetId: string }) => void;
   forceAdvancePhase: (lobbyId: string) => void;
   pauseGame: (lobbyId: string) => void;
   resumeGame: (lobbyId: string) => void;

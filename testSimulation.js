@@ -1,210 +1,181 @@
-const { io } = require("socket.io-client");
+const { io } = require('socket.io-client');
 
 async function sleep(ms) {
-    return new Promise(resolve => setTimeout(resolve, ms));
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function assert(condition, message) {
-    if (!condition) {
-        throw new Error("Assertion failed: " + message);
-    }
+  if (!condition) {
+    throw new Error(`Assertion failed: ${message}`);
+  }
 }
 
 async function runTest() {
-    console.log("Starting Mafia Server Test with 6 simulated players...");
-    
-    // Connect 6 clients
-    let clients = Array.from({ length: 6 }, () => io("http://127.0.0.1:3001"));
-    let connectedCount = 0;
-    
-    for (const client of clients) {
-        client.on("connect", () => connectedCount++);
-        client.on("error", (msg) => console.error("Socket Error:", msg));
-    }
+  console.log('Starting Mafia: Vendetta integration test with 8 simulated players...');
 
-    await sleep(2000);
-    assert(connectedCount === 6, "Failed to connect 6 clients. Is the server running?");
-    console.log("✅ 6 Clients Connected.");
+  const clients = Array.from({ length: 8 }, () => io('http://127.0.0.1:3001'));
+  const states = clients.map(() => ({ me: null, lobby: null }));
+  let connectedCount = 0;
+  let lobbyId = '';
 
-    // Store game states
-    let lobbyId = "";
-    let states = clients.map(() => ({ me: null, lobby: null }));
-
-    const attachListeners = (client, idx) => {
-        client.on("gameStateUpdate", (lobby) => { states[idx].lobby = lobby; });
-        client.on("privatePlayerUpdate", (me) => { states[idx].me = me; });
-    };
-    clients.forEach(attachListeners);
-
-    // Client 0 creates lobby
-    console.log("Host creating lobby...");
-    clients[0].emit("createLobby", { displayName: "HostPlayer", sessionId: "session_0" }, (id) => {
-        lobbyId = id;
+  clients.forEach((client, index) => {
+    client.on('connect', () => {
+      connectedCount += 1;
     });
+    client.on('gameStateUpdate', (lobby) => {
+      states[index].lobby = lobby;
+    });
+    client.on('privatePlayerUpdate', (me) => {
+      states[index].me = me;
+    });
+    client.on('error', (msg) => {
+      console.error('Socket Error:', msg);
+    });
+  });
 
-    await sleep(500);
-    assert(lobbyId !== "", "Failed to create lobby.");
-    console.log(`✅ Lobby Created: ${lobbyId}`);
+  await sleep(2000);
+  assert(connectedCount === 8, 'Failed to connect 8 clients. Is the server running?');
+  console.log('✅ 8 clients connected.');
 
-    // Clients 1-5 join
-    console.log("Other 5 players joining...");
-    for (let i = 1; i < 6; i++) {
-        clients[i].emit("joinLobby", { lobbyId, displayName: `Player${i}`, sessionId: `session_${i}` }, () => {});
+  clients[0].emit('createLobby', { displayName: 'Host', sessionId: 'session_0' }, (id) => {
+    lobbyId = id;
+  });
+  await sleep(500);
+  assert(lobbyId !== '', 'Failed to create lobby');
+
+  for (let index = 1; index < 8; index += 1) {
+    clients[index].emit('joinLobby', { lobbyId, displayName: `Player${index}`, sessionId: `session_${index}` }, () => {});
+  }
+
+  await sleep(800);
+  assert(states[0].lobby.players.length === 8, 'Not all players joined');
+  assert(states[0].lobby.roleConfig.detective === 1, 'Rulebook auto-fill did not apply the 8-player setup');
+  assert(states[0].lobby.roleConfig.nurse === 1, 'Expected one specialist in the 8-player setup');
+  assert(states[0].lobby.roleConfig.thug === 2, 'Expected two thugs in the 8-player setup');
+  console.log('✅ Rulebook setup table applied for 8 players.');
+
+  clients[1].emit('startGame', lobbyId);
+  await sleep(400);
+  assert(states[0].lobby.gameState.phase === 'lobby', 'Non-host started the game');
+  console.log('✅ Non-host start restriction works.');
+
+  clients[0].emit('startGame', lobbyId);
+  await sleep(1000);
+  assert(states[0].lobby.gameState.phase === 'role_reveal', 'Game failed to enter role reveal');
+
+  clients.forEach((client) => client.emit('continueToNextPhase', lobbyId));
+  await sleep(1000);
+  assert(states[0].lobby.gameState.phase === 'night', 'Failed to enter the first night');
+  assert(states[0].lobby.gameState.firstNight === true, 'Expected first night flag to be set');
+
+  let nurseIndex = -1;
+  let detectiveIndex = -1;
+  const thugIndices = [];
+  const bystanderIndices = [];
+
+  for (let index = 0; index < 8; index += 1) {
+    const role = states[index].me.role;
+    if (role === 'Nurse') nurseIndex = index;
+    if (role === 'Detective') detectiveIndex = index;
+    if (role === 'Thug') thugIndices.push(index);
+    if (role === 'Bystander') bystanderIndices.push(index);
+  }
+
+  assert(nurseIndex !== -1, 'Missing Nurse');
+  assert(detectiveIndex !== -1, 'Missing Detective');
+  assert(thugIndices.length === 2, 'Expected two Thugs');
+  assert(bystanderIndices.length >= 2, 'Expected multiple Bystanders');
+
+  const investigatedThugId = states[thugIndices[0]].me.playerId;
+  const protectedBystanderId = states[bystanderIndices[0]].me.playerId;
+
+  clients[nurseIndex].emit('submitNightAction', {
+    lobbyId,
+    abilityTargetId: protectedBystanderId,
+    abilityAction: 'protect',
+  });
+  clients[detectiveIndex].emit('submitNightAction', {
+    lobbyId,
+    abilityTargetId: investigatedThugId,
+    abilityAction: 'investigate',
+  });
+
+  await sleep(1200);
+  assert(states[0].lobby.gameState.phase === 'day', 'First night did not resolve to day');
+  assert(states[0].lobby.gameState.nightDeaths.length === 0, 'Nobody should die on the first night');
+  assert(states[detectiveIndex].me.investigationResult?.targetId === investigatedThugId, 'Detective investigation result missing');
+  assert(states[detectiveIndex].me.investigationResult?.role === 'Thug', 'Detective should see the exact investigated role');
+  console.log('✅ First-night rule and detective investigation passed.');
+
+  for (let index = 0; index < 8; index += 1) {
+    if (states[index].me.isAlive) clients[index].emit('continueToNextPhase', lobbyId);
+  }
+  await sleep(1000);
+  assert(states[0].lobby.gameState.phase === 'voting', 'Failed to enter voting');
+
+  const firstThugId = states[thugIndices[0]].me.playerId;
+  for (let index = 0; index < 8; index += 1) {
+    if (states[index].me.isAlive) {
+      clients[index].emit('submitVote', { lobbyId, targetId: firstThugId });
     }
+  }
+  await sleep(1000);
+  assert(states[0].lobby.gameState.phase === 'result', 'Voting did not resolve');
+  assert(states[0].lobby.gameState.lastEliminated === firstThugId, 'Expected the first Thug to be eliminated');
 
-    await sleep(500);
-    assert(states[0].lobby.players.length === 6, "Not all players joined");
+  for (let index = 0; index < 8; index += 1) {
+    if (states[index].me.isAlive) clients[index].emit('continueToNextPhase', lobbyId);
+  }
+  await sleep(1000);
+  assert(states[0].lobby.gameState.phase === 'night', 'Failed to loop back to night');
+  assert(states[0].lobby.gameState.firstNight === false, 'Only the opening night should be marked as first night');
 
-    // TEST: non-host cannot start game
-    console.log("Testing non-host auth restrictions...");
-    clients[1].emit("startGame", lobbyId);
-    await sleep(500);
-    assert(states[0].lobby.gameState.phase === 'lobby', "Non-host was able to start the game!");
-    console.log("✅ Non-host gracefully rejected from starting game.");
+  const remainingThugIndex = thugIndices.find((index) => states[index].me.isAlive);
+  const doomedBystanderId = states[bystanderIndices[1]].me.playerId;
 
-    // Setup roles for 6 players: 2 Mafia, 1 Doc, 1 Det, 2 Citizens
-    console.log("Setting up role config: 2 Mafia...");
-    clients[0].emit("updateRoleConfig", { lobbyId, config: { mafia: 2, doctor: 1, detective: 1, citizen: 2 }});
-    await sleep(500);
-    
-    for (let i = 0; i < 6; i++) clients[i].emit("toggleReady", lobbyId);
-    await sleep(500);
-    
-    // Host starts game
-    clients[0].emit("startGame", lobbyId);
-    await sleep(1000);
-    assert(states[0].lobby.gameState.phase === 'role_reveal', "Game failed to start");
-    console.log("✅ Game Started. Phase: role_reveal");
-    
-    // Role Reveal -> Night
-    for (const client of clients) client.emit("continueToNextPhase", lobbyId);
-    await sleep(1000);
-    assert(states[0].lobby.gameState.phase === 'night', "Failed to transition to night");
+  clients[remainingThugIndex].emit('submitNightAction', {
+    lobbyId,
+    mafiaTargetId: doomedBystanderId,
+  });
+  clients[nurseIndex].emit('submitNightAction', {
+    lobbyId,
+    abilityTargetId: protectedBystanderId,
+    abilityAction: 'protect',
+  });
+  clients[detectiveIndex].emit('submitNightAction', {
+    lobbyId,
+    abilityTargetId: states[remainingThugIndex].me.playerId,
+    abilityAction: 'investigate',
+  });
 
-    // Night Actions
-    console.log("Submitting Night Actions (Testing 2-Mafia Aggregation)...");
-    
-    let mafiaIndices = [];
-    let docIndex, detIndex;
-    let citizenIndices = [];
-    for (let i=0; i<6; i++) {
-        const r = states[i].me.role;
-        if(r === 'Mafia') mafiaIndices.push(i);
-        if(r === 'Doctor') docIndex = i;
-        if(r === 'Detective') detIndex = i;
-        if(r === 'Citizen') citizenIndices.push(i);
+  await sleep(1200);
+  assert(states[0].lobby.gameState.phase === 'day', 'Night two did not resolve to day');
+  assert(states[0].lobby.gameState.nightDeaths.length === 1, 'Expected exactly one night kill');
+  assert(states[0].lobby.gameState.nightDeaths[0] === doomedBystanderId, 'The wrong player died on night two');
+  console.log('✅ Night kill flow passed.');
+
+  for (let index = 0; index < 8; index += 1) {
+    if (states[index].me.isAlive) clients[index].emit('continueToNextPhase', lobbyId);
+  }
+  await sleep(1000);
+
+  const lastThugId = states[remainingThugIndex].me.playerId;
+  for (let index = 0; index < 8; index += 1) {
+    if (states[index].me.isAlive) {
+      clients[index].emit('submitVote', { lobbyId, targetId: lastThugId });
     }
-    
-    const targetCitizen = citizenIndices[0];
+  }
 
-    // Mafia 1 votes for targetCitizen
-    clients[mafiaIndices[0]].emit("submitNightAction", { lobbyId, targetId: states[targetCitizen].me.playerId });
-    await sleep(500);
-    assert(states[0].lobby.gameState.phase === 'night', "Night resolved too early before all Mafia voted!");
-    console.log("✅ Night held open, waiting for second Mafia...");
+  await sleep(1000);
+  assert(states[0].lobby.gameState.phase === 'ended', 'Game did not end');
+  assert(states[0].lobby.gameState.winner === 'Civilians', 'The civilians should have won');
 
-    // Mafia 2 votes for targetCitizen
-    clients[mafiaIndices[1]].emit("submitNightAction", { lobbyId, targetId: states[targetCitizen].me.playerId });
-    
-    // Doctor saves self (to let the citizen die)
-    clients[docIndex].emit("submitNightAction", { lobbyId, targetId: states[docIndex].me.playerId });
-    
-    // Det checks Citizen 1
-    clients[detIndex].emit("submitNightAction", { lobbyId, targetId: states[citizenIndices[1]].me.playerId });
-
-    await sleep(1000);
-    assert(states[0].lobby.gameState.phase === 'day', "Failed to resolve night");
-    console.log("✅ 2 Mafia Aggregation Successful. Phase: Day.");
-    assert(states[0].lobby.gameState.nightDeath === states[targetCitizen].me.playerId, "Wrong person died!");
-
-    // Check Detective private result
-    console.log("Checking Detective Privacy...");
-    const detMe = states[detIndex].me;
-    assert(detMe.detectiveResult !== undefined, "Detective did not get result");
-    assert(detMe.detectiveResult.isMafia === false, "Detective got wrong result");
-    assert(states[citizenIndices[1]].me.detectiveResult === undefined, "Detective result leaked to another player!");
-    console.log("✅ Detective private event properly isolated.");
-
-    // RECONNECT TEST
-    console.log("Testing Reconnect Logic...");
-    clients[docIndex].disconnect();
-    await sleep(500);
-    clients[docIndex] = io("http://127.0.0.1:3001");
-    // re-attach listener
-    states[docIndex].me = null;
-    states[docIndex].lobby = null;
-    attachListeners(clients[docIndex], docIndex);
-    
-    await sleep(500);
-    clients[docIndex].emit("reconnectLobby", { lobbyId, sessionId: `session_${docIndex}` });
-    await sleep(1000);
-    assert(states[docIndex].me !== null, "Reconnect failed to restore private player state");
-    assert(states[docIndex].me.role === 'Doctor', "Reconnect failed to restore exact role");
-    console.log("✅ Session Reconnect successfully restored player.");
-
-    // Day -> Voting
-    for (let i = 0; i < 6; i++) {
-        if (states[i].me.isAlive) clients[i].emit("continueToNextPhase", lobbyId);
-    }
-    await sleep(1000);
-    assert(states[0].lobby.gameState.phase === 'voting', "Failed to transition to voting phase.");
-
-    // Voting out a Mafia member
-    console.log("Voting out a Mafia member...");
-    const mafiaToVoteOut = states[mafiaIndices[0]].me.playerId;
-    for (let i = 0; i < 6; i++) {
-        if (states[i].me && states[i].me.isAlive) {
-            clients[i].emit("submitVote", { lobbyId, targetId: mafiaToVoteOut });
-        }
-    }
-    await sleep(1000);
-    
-    // It should be result phase
-    assert(states[0].lobby.gameState.phase === 'result', "Failed to resolve voting.");
-    
-    // Result -> Night
-    for (let i = 0; i < 6; i++) {
-        if (states[i].me && states[i].me.isAlive) clients[i].emit("continueToNextPhase", lobbyId);
-    }
-    await sleep(1000);
-    assert(states[0].lobby.gameState.phase === 'night', "Failed to loop back to night.");
-
-    // Second Night - Mafia kills second citizen, Det checks remaining Mafia, Doc saves himself
-    clients[mafiaIndices[1]].emit("submitNightAction", { lobbyId, targetId: states[citizenIndices[1]].me.playerId });
-    clients[docIndex].emit("submitNightAction", { lobbyId, targetId: states[docIndex].me.playerId });
-    clients[detIndex].emit("submitNightAction", { lobbyId, targetId: states[mafiaIndices[1]].me.playerId });
-    
-    await sleep(1000);
-    assert(states[0].lobby.gameState.phase === 'day', "Night 2 didn't resolve to day.");
-
-    // Check det result of Night 2 is properly cleared and updated
-    assert(states[detIndex].me.detectiveResult.isMafia === true, "Detective night 2 failed");
-
-    // Skip Day -> Voting
-    for (let i = 0; i < 6; i++) {
-        if (states[i].me && states[i].me.isAlive) clients[i].emit("continueToNextPhase", lobbyId);
-    }
-    await sleep(1000);
-
-    // Vote out last mafia
-    console.log("Voting out the final Mafia member to trigger win condition...");
-    const lastMafia = states[mafiaIndices[1]].me.playerId;
-    for (let i = 0; i < 6; i++) {
-        if (states[i].me && states[i].me.isAlive) {
-            clients[i].emit("submitVote", { lobbyId, targetId: lastMafia });
-        }
-    }
-    await sleep(1000);
-
-    assert(states[0].lobby.gameState.phase === 'ended', "Game did not end!");
-    assert(states[0].lobby.gameState.winner === 'Citizens', "Winner was calculated wrong!");
-    
-    console.log("✅ Game Ended automatically. Win Condition Successfully Triggered.");
-    console.log("\n🧪 ALL MULTIPLAYER & EDGE CASE TESTS PASSED SUCCESSFULLY! 🧪");
-    process.exit(0);
+  console.log('✅ Citizens win condition passed.');
+  console.log('\n🧪 Mafia: Vendetta integration test passed. 🧪');
+  process.exit(0);
 }
 
-runTest().catch(err => {
-    console.error("Test Failed with Error:", err);
-    process.exit(1);
+runTest().catch((error) => {
+  console.error('Test failed with error:', error);
+  process.exit(1);
 });

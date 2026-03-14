@@ -4,26 +4,727 @@ const { Server } = require('socket.io');
 const next = require('next');
 
 const dev = process.env.NODE_ENV !== 'production';
-const hostname = process.env.RENDER ? '0.0.0.0' : 'localhost';
+const hostname = process.env.RENDER ? '0.0.0.0' : '127.0.0.1';
 const port = parseInt(process.env.PORT || '3001', 10);
 
 const app = next({ dev, hostname, port });
 const handle = app.getRequestHandler();
 
-// IN-MEMORY GAME STATE 
-const lobbies = new Map(); // Map<string, Lobby>
+const lobbies = new Map();
+
+const ROLE_TEAM = {
+  Bystander: 'Civilians',
+  Nurse: 'Civilians',
+  Bodyguard: 'Civilians',
+  Vixen: 'Civilians',
+  Hypnotist: 'Civilians',
+  Journalist: 'Civilians',
+  Detective: 'Civilians',
+  Jailer: 'Civilians',
+  Priest: 'Civilians',
+  Judge: 'Civilians',
+  Sheriff: 'Civilians',
+  Thug: 'Mafia',
+  Thief: 'Mafia',
+  Lawyer: 'Mafia',
+  Godfather: 'Mafia',
+  Snitch: 'Mafia',
+  Yakuza: 'Yakuza',
+  FemmeFatale: 'Loner',
+  Impostor: 'Loner',
+  Psycho: 'Loner',
+};
+
+const ROLE_ORDER = [
+  { key: 'bystander', role: 'Bystander' },
+  { key: 'nurse', role: 'Nurse' },
+  { key: 'bodyguard', role: 'Bodyguard' },
+  { key: 'vixen', role: 'Vixen' },
+  { key: 'hypnotist', role: 'Hypnotist' },
+  { key: 'journalist', role: 'Journalist' },
+  { key: 'detective', role: 'Detective' },
+  { key: 'jailer', role: 'Jailer' },
+  { key: 'priest', role: 'Priest' },
+  { key: 'judge', role: 'Judge' },
+  { key: 'sheriff', role: 'Sheriff' },
+  { key: 'thug', role: 'Thug' },
+  { key: 'thief', role: 'Thief' },
+  { key: 'lawyer', role: 'Lawyer' },
+  { key: 'godfather', role: 'Godfather' },
+  { key: 'snitch', role: 'Snitch' },
+  { key: 'yakuza', role: 'Yakuza' },
+  { key: 'femmeFatale', role: 'FemmeFatale' },
+  { key: 'impostor', role: 'Impostor' },
+  { key: 'psycho', role: 'Psycho' },
+];
+
+const CLASSIC_SETUP = {
+  6: { bystander: 4, detective: 1, thug: 1 },
+  7: { bystander: 4, detective: 1, thug: 2 },
+  8: { bystander: 4, nurse: 1, detective: 1, thug: 2 },
+  9: { bystander: 5, nurse: 1, detective: 1, thug: 2 },
+  10: { bystander: 4, nurse: 1, bodyguard: 1, detective: 1, thug: 2, thief: 1 },
+  11: { bystander: 6, nurse: 1, detective: 1, thug: 2, thief: 1 },
+  12: { bystander: 6, nurse: 1, bodyguard: 1, detective: 1, thug: 2, thief: 1 },
+  13: { bystander: 6, nurse: 1, bodyguard: 1, detective: 1, thug: 3, thief: 1 },
+  14: { bystander: 7, nurse: 1, bodyguard: 1, vixen: 1, detective: 1, thug: 3, thief: 1 },
+  15: { bystander: 8, nurse: 1, bodyguard: 1, vixen: 1, detective: 1, thug: 3, thief: 1 },
+  16: { bystander: 8, nurse: 1, bodyguard: 1, vixen: 1, detective: 1, thug: 2, thief: 1, lawyer: 1 },
+};
+
+function emptyRoleConfig() {
+  return {
+    bystander: 0,
+    nurse: 0,
+    bodyguard: 0,
+    vixen: 0,
+    hypnotist: 0,
+    journalist: 0,
+    detective: 0,
+    jailer: 0,
+    priest: 0,
+    judge: 0,
+    sheriff: 0,
+    thug: 0,
+    thief: 0,
+    lawyer: 0,
+    godfather: 0,
+    snitch: 0,
+    yakuza: 0,
+    femmeFatale: 0,
+    impostor: 0,
+    psycho: 0,
+  };
+}
 
 function generateRoomCode() {
-  return Math.random().toString(36).substring(2, 6).toUpperCase();
+  let code = '';
+  do {
+    code = Math.random().toString(36).substring(2, 6).toUpperCase();
+  } while (lobbies.has(code));
+  return code;
+}
+
+function getRecommendedClassicConfig(playerCount) {
+  return {
+    ...emptyRoleConfig(),
+    ...(CLASSIC_SETUP[playerCount] || { bystander: Math.max(0, playerCount - 2), detective: playerCount >= 6 ? 1 : 0, thug: playerCount >= 6 ? 1 : 0 }),
+  };
+}
+
+function cloneConfig(config = {}) {
+  return { ...emptyRoleConfig(), ...config };
+}
+
+function createPlayer({ playerId, socketId, displayName }) {
+  return {
+    playerId,
+    socketId,
+    displayName,
+    isAlive: true,
+    role: null,
+    team: null,
+    isReady: false,
+    currentVote: null,
+    mafiaVoteTarget: null,
+    yakuzaVoteTarget: null,
+    abilityTarget: null,
+    secondaryAbilityTarget: null,
+    abilityAction: null,
+    readyToContinue: false,
+    investigationResult: undefined,
+    isJailed: false,
+    isSilenced: false,
+    hypnotizedBy: null,
+    badmouthedTargetId: null,
+    revealedToPlayerIds: [],
+  };
+}
+
+function createLobbyState(hostPlayer) {
+  return {
+    lobbyId: generateRoomCode(),
+    hostId: hostPlayer.playerId,
+    status: 'waiting',
+    settings: {
+      revealRoleOnDeath: true,
+      discussionTimer: 0,
+      nightActionTimer: 0,
+      mysteryMode: false,
+      mode: 'classic',
+    },
+    roleConfig: getRecommendedClassicConfig(6),
+    players: [hostPlayer],
+    gameState: {
+      phase: 'lobby',
+      roundNumber: 0,
+      alivePlayers: [hostPlayer.playerId],
+      eliminatedPlayers: [],
+      voteResults: {},
+      winner: null,
+      lastEliminated: null,
+      nightDeaths: [],
+      firstNight: true,
+      jailedPlayerIds: [],
+      dawnAnnouncements: [],
+    },
+  };
 }
 
 function getPlayer(lobby, socketId) {
-  return lobby?.players.find(p => p.socketId === socketId);
+  return lobby?.players.find((player) => player.socketId === socketId);
 }
 
 function isHost(lobby, socketId) {
-  const p = getPlayer(lobby, socketId);
-  return lobby && p && lobby.hostId === p.playerId;
+  const player = getPlayer(lobby, socketId);
+  return Boolean(lobby && player && lobby.hostId === player.playerId);
+}
+
+function syncAlivePlayers(lobby) {
+  lobby.gameState.alivePlayers = lobby.players.filter((player) => player.isAlive).map((player) => player.playerId);
+}
+
+function totalConfiguredRoles(config) {
+  return Object.values(config).reduce((sum, count) => sum + count, 0);
+}
+
+function hasRoleInConfig(config, keys) {
+  return keys.some((key) => (config[key] || 0) > 0);
+}
+
+function validateConfig(lobby) {
+  const config = lobby.roleConfig;
+  const total = totalConfiguredRoles(config);
+  if (total !== lobby.players.length) return 'Role count must match player count';
+  if (lobby.settings.mode === 'classic' && (config.yakuza || config.femmeFatale || config.impostor || config.psycho)) {
+    return 'Classic mode cannot include Yakuza or Loner roles';
+  }
+  if (lobby.settings.mode === 'loner' && config.yakuza > 0) {
+    return 'Loner mode cannot include Yakuza roles';
+  }
+  if (lobby.settings.mode === 'yakuza' && hasRoleInConfig(config, ['thief', 'lawyer', 'godfather', 'snitch'])) {
+    return 'Yakuza mode cannot include Mafia mobsters';
+  }
+  if (lobby.settings.mode === 'yakuza' && config.yakuza === 0) {
+    return 'Yakuza mode needs at least one Yakuza role';
+  }
+  if (lobby.settings.mode === 'loner' && config.femmeFatale + config.impostor + config.psycho !== 1) {
+    return 'Loner mode needs exactly one Loner role';
+  }
+  return null;
+}
+
+function buildRolePool(config) {
+  const roles = [];
+  for (const entry of ROLE_ORDER) {
+    const count = config[entry.key] || 0;
+    for (let index = 0; index < count; index += 1) {
+      roles.push({ role: entry.role, team: ROLE_TEAM[entry.role] });
+    }
+  }
+  return roles.sort(() => Math.random() - 0.5);
+}
+
+function resetPlayerRoundState(player) {
+  player.currentVote = null;
+  player.mafiaVoteTarget = null;
+  player.yakuzaVoteTarget = null;
+  player.abilityTarget = null;
+  player.secondaryAbilityTarget = null;
+  player.abilityAction = null;
+  player.readyToContinue = false;
+  player.investigationResult = undefined;
+  player.badmouthedTargetId = null;
+  player.revealedToPlayerIds = [];
+}
+
+function resetDayStatuses(lobby) {
+  const jailerAlive = lobby.players.some((player) => player.isAlive && player.role === 'Jailer');
+  lobby.players.forEach((player) => {
+    player.isSilenced = false;
+    player.hypnotizedBy = null;
+    if (!jailerAlive) {
+      player.isJailed = false;
+    }
+  });
+  lobby.gameState.jailedPlayerIds = jailerAlive
+    ? lobby.players.filter((player) => player.isJailed && player.isAlive).map((player) => player.playerId)
+    : [];
+}
+
+function resetForNewGame(lobby) {
+  lobby.status = 'waiting';
+  lobby.gameState = {
+    phase: 'lobby',
+    roundNumber: 0,
+    alivePlayers: lobby.players.map((player) => player.playerId),
+    eliminatedPlayers: [],
+    voteResults: {},
+    winner: null,
+    lastEliminated: null,
+    nightDeaths: [],
+    firstNight: true,
+    jailedPlayerIds: [],
+    dawnAnnouncements: [],
+  };
+
+  lobby.players.forEach((player) => {
+    player.isAlive = true;
+    player.role = null;
+    player.team = null;
+    player.isReady = false;
+    player.isJailed = false;
+    player.isSilenced = false;
+    player.hypnotizedBy = null;
+    resetPlayerRoundState(player);
+  });
+}
+
+function emitPrivateUpdates(lobby, io) {
+  lobby.players.forEach((player) => {
+    io.to(player.socketId).emit('privatePlayerUpdate', player);
+  });
+}
+
+function finishGame(lobby, io) {
+  lobby.gameState.phase = 'ended';
+  lobby.status = 'finished';
+  io.to(lobby.lobbyId).emit('gameStateUpdate', lobby);
+}
+
+function mafiaParticipants(lobby) {
+  return lobby.players.filter((player) => player.isAlive && (player.team === 'Mafia' || player.role === 'Impostor'));
+}
+
+function yakuzaParticipants(lobby) {
+  return lobby.players.filter((player) => player.isAlive && player.team === 'Yakuza');
+}
+
+function teamCount(lobby, team) {
+  return lobby.players.filter((player) => player.isAlive && player.team === team).length;
+}
+
+function checkWinCondition(lobby) {
+  const mafia = teamCount(lobby, 'Mafia');
+  const civilians = teamCount(lobby, 'Civilians');
+  const yakuza = teamCount(lobby, 'Yakuza');
+  const loner = teamCount(lobby, 'Loner');
+  const alivePlayers = lobby.players.filter((player) => player.isAlive);
+
+  if (lobby.settings.mode === 'yakuza') {
+    if (alivePlayers.length === 2 && mafia === 1 && yakuza === 1) {
+      lobby.gameState.winner = 'Draw';
+      return true;
+    }
+    if (mafia === 0 && yakuza > 0 && civilians <= yakuza) {
+      lobby.gameState.winner = 'Yakuza';
+      return true;
+    }
+    if (yakuza === 0 && mafia > 0 && civilians <= mafia) {
+      lobby.gameState.winner = 'Mafia';
+      return true;
+    }
+    if (mafia === 0 && yakuza === 0) {
+      lobby.gameState.winner = 'Civilians';
+      return true;
+    }
+    return false;
+  }
+
+  if (lobby.settings.mode === 'loner') {
+    if (alivePlayers.length === 1 && loner === 1) {
+      lobby.gameState.winner = 'Loner';
+      return true;
+    }
+    if (mafia === 0) {
+      lobby.gameState.winner = 'Civilians';
+      return true;
+    }
+    if (mafia >= civilians) {
+      lobby.gameState.winner = loner > 0 ? 'Loner' : 'Mafia';
+      return true;
+    }
+    return false;
+  }
+
+  if (mafia === 0) {
+    lobby.gameState.winner = 'Civilians';
+    return true;
+  }
+  if (mafia >= civilians) {
+    lobby.gameState.winner = 'Mafia';
+    return true;
+  }
+  return false;
+}
+
+function getAllowedActions(role) {
+  switch (role) {
+    case 'Nurse':
+    case 'Bodyguard':
+      return ['protect'];
+    case 'Vixen':
+    case 'Thief':
+      return ['block'];
+    case 'Hypnotist':
+      return ['hypnotize'];
+    case 'Journalist':
+      return ['compare'];
+    case 'Detective':
+    case 'Priest':
+      return ['investigate', 'kill'];
+    case 'Jailer':
+    case 'Judge':
+    case 'Lawyer':
+      return ['investigate'];
+    case 'Sheriff':
+    case 'Psycho':
+    case 'FemmeFatale':
+      return ['kill'];
+    case 'Godfather':
+      return ['silence'];
+    case 'Snitch':
+      return ['badmouth'];
+    default:
+      return [];
+  }
+}
+
+function needsAbility(role) {
+  return getAllowedActions(role).length > 0;
+}
+
+function needsMafiaVote(player, lobby) {
+  if (!player.isAlive || lobby.gameState.firstNight) return false;
+  return player.team === 'Mafia' || player.role === 'Impostor';
+}
+
+function needsYakuzaVote(player, lobby) {
+  if (!player.isAlive || lobby.gameState.firstNight) return false;
+  return player.team === 'Yakuza';
+}
+
+function isNightActionComplete(player, lobby) {
+  if (!player.isAlive || !player.role) return true;
+  if (player.isJailed) return true;
+
+  const mafiaDone = !needsMafiaVote(player, lobby) || player.mafiaVoteTarget !== null;
+  const yakuzaDone = !needsYakuzaVote(player, lobby) || player.yakuzaVoteTarget !== null;
+  const abilityNeeded = needsAbility(player.role);
+  const action = player.abilityAction;
+
+  let abilityDone = true;
+  if (abilityNeeded) {
+    if (!action) {
+      abilityDone = false;
+    } else if (action === 'compare') {
+      abilityDone = Boolean(player.abilityTarget && player.secondaryAbilityTarget);
+    } else {
+      abilityDone = Boolean(player.abilityTarget);
+    }
+  }
+
+  return mafiaDone && yakuzaDone && abilityDone;
+}
+
+function maskForSnitch(target, snitchTargetId) {
+  if (target.playerId === snitchTargetId) {
+    return { role: 'Thug', team: 'Mafia' };
+  }
+  return { role: target.role, team: target.team };
+}
+
+function markEliminated(lobby, playerId, eliminatedSet) {
+  const player = lobby.players.find((candidate) => candidate.playerId === playerId);
+  if (!player || !player.isAlive) return;
+  player.isAlive = false;
+  eliminatedSet.add(player.playerId);
+}
+
+function chooseMajority(votes) {
+  if (votes.length === 0) return null;
+  const counts = {};
+  let winnerId = null;
+  let maxVotes = 0;
+  let tie = false;
+
+  for (const vote of votes) {
+    counts[vote] = (counts[vote] || 0) + 1;
+    if (counts[vote] > maxVotes) {
+      maxVotes = counts[vote];
+      winnerId = vote;
+      tie = false;
+    } else if (counts[vote] === maxVotes) {
+      tie = true;
+    }
+  }
+
+  return tie ? null : winnerId;
+}
+
+function startNightPhase(lobby, io) {
+  lobby.gameState.phase = 'night';
+  lobby.gameState.roundNumber += 1;
+  lobby.gameState.nightDeaths = [];
+  lobby.gameState.lastEliminated = null;
+  lobby.gameState.voteResults = {};
+  lobby.gameState.dawnAnnouncements = [];
+  lobby.players.forEach(resetPlayerRoundState);
+  io.to(lobby.lobbyId).emit('gameStateUpdate', lobby);
+  emitPrivateUpdates(lobby, io);
+}
+
+function resolveNightPhase(lobby, io) {
+  const firstNight = lobby.gameState.firstNight;
+  const dawnAnnouncements = [];
+  const alivePlayers = lobby.players.filter((player) => player.isAlive);
+  const blockedPlayers = new Set();
+  const killImmunePlayers = new Set();
+  const protectedPlayers = new Set();
+  const bodyguardTargets = new Map();
+  const hypnotizedTargets = [];
+  const silencedPlayers = new Set();
+  const snitchTargets = [];
+  const eliminatedSet = new Set();
+  const investigationUpdates = [];
+  const priestRevealUpdates = [];
+  const jailedNow = [];
+
+  for (const player of alivePlayers) {
+    if (player.role === 'Thief' && player.abilityAction === 'block' && player.abilityTarget) {
+      blockedPlayers.add(player.abilityTarget);
+    }
+    if (player.role === 'Vixen' && player.abilityAction === 'block' && player.abilityTarget) {
+      blockedPlayers.add(player.abilityTarget);
+      killImmunePlayers.add(player.abilityTarget);
+    }
+    if (player.role === 'Snitch' && player.abilityAction === 'badmouth' && player.abilityTarget) {
+      snitchTargets.push(player.abilityTarget);
+    }
+  }
+
+  const badmouthedTargetId = snitchTargets[snitchTargets.length - 1] || null;
+
+  for (const player of alivePlayers) {
+    if (blockedPlayers.has(player.playerId) || player.isJailed) continue;
+
+    if ((player.role === 'Nurse' || player.role === 'Bodyguard') && player.abilityAction === 'protect' && player.abilityTarget) {
+      if (player.role === 'Nurse') protectedPlayers.add(player.abilityTarget);
+      if (player.role === 'Bodyguard') bodyguardTargets.set(player.abilityTarget, player.playerId);
+    }
+
+    if (player.role === 'Hypnotist' && player.abilityAction === 'hypnotize' && player.abilityTarget) {
+      hypnotizedTargets.push({ targetId: player.abilityTarget, hypnotistId: player.playerId });
+    }
+
+    if (player.role === 'Godfather' && player.abilityAction === 'silence' && player.abilityTarget) {
+      silencedPlayers.add(player.abilityTarget);
+    }
+
+    const investigateRole = ['Detective', 'Priest', 'Judge', 'Jailer', 'Lawyer'].includes(player.role);
+    if (investigateRole && player.abilityAction === 'investigate' && player.abilityTarget) {
+      const target = lobby.players.find((candidate) => candidate.playerId === player.abilityTarget);
+      if (target) {
+        const masked = maskForSnitch(target, badmouthedTargetId);
+        investigationUpdates.push({
+          playerId: player.playerId,
+          result: {
+            targetId: target.playerId,
+            role: masked.role,
+            team: masked.team,
+          },
+        });
+
+        if (player.role === 'Jailer' && target.team !== 'Loner' && (target.team === 'Mafia' || target.team === 'Yakuza')) {
+          target.isJailed = true;
+          jailedNow.push(target.playerId);
+        }
+
+        if (player.role === 'Priest') {
+          priestRevealUpdates.push({ targetId: target.playerId, priestId: player.playerId });
+        }
+      }
+    }
+
+    if (player.role === 'Journalist' && player.abilityAction === 'compare' && player.abilityTarget && player.secondaryAbilityTarget) {
+      const left = lobby.players.find((candidate) => candidate.playerId === player.abilityTarget);
+      const right = lobby.players.find((candidate) => candidate.playerId === player.secondaryAbilityTarget);
+      if (left && right) {
+        investigationUpdates.push({
+          playerId: player.playerId,
+          result: {
+            compareTargetIds: [left.playerId, right.playerId],
+            sameTeam: left.team === right.team,
+            message: left.team === right.team ? 'These two players are on the same team.' : 'These two players are on opposing teams.',
+          },
+        });
+      }
+    }
+  }
+
+  const scheduledKills = [];
+
+  if (!firstNight) {
+    const mafiaTarget = chooseMajority(
+      mafiaParticipants(lobby)
+        .filter((player) => !player.isJailed)
+        .map((player) => player.mafiaVoteTarget)
+        .filter(Boolean),
+    );
+    if (mafiaTarget) scheduledKills.push({ targetId: mafiaTarget, source: 'Mafia' });
+
+    const yakuzaTarget = chooseMajority(
+      yakuzaParticipants(lobby)
+        .filter((player) => !player.isJailed)
+        .map((player) => player.yakuzaVoteTarget)
+        .filter(Boolean),
+    );
+    if (yakuzaTarget) scheduledKills.push({ targetId: yakuzaTarget, source: 'Yakuza' });
+  }
+
+  for (const player of alivePlayers) {
+    if (blockedPlayers.has(player.playerId) || player.isJailed) continue;
+    if (player.abilityAction !== 'kill' || !player.abilityTarget || firstNight) continue;
+    scheduledKills.push({ targetId: player.abilityTarget, source: player.role });
+  }
+
+  for (const kill of scheduledKills) {
+    const victim = lobby.players.find((candidate) => candidate.playerId === kill.targetId);
+    if (!victim || !victim.isAlive) continue;
+    if (killImmunePlayers.has(victim.playerId)) continue;
+    if (protectedPlayers.has(victim.playerId)) continue;
+
+    if (kill.source === 'FemmeFatale' && victim.role === 'Bystander') {
+      continue;
+    }
+
+    const bodyguardId = bodyguardTargets.get(victim.playerId);
+    if (bodyguardId) {
+      markEliminated(lobby, bodyguardId, eliminatedSet);
+      continue;
+    }
+
+    markEliminated(lobby, victim.playerId, eliminatedSet);
+  }
+
+  lobby.gameState.firstNight = false;
+  lobby.gameState.nightDeaths = Array.from(eliminatedSet);
+  lobby.gameState.phase = 'day';
+  syncAlivePlayers(lobby);
+
+  if (!lobby.players.some((player) => player.isAlive && player.role === 'Jailer')) {
+    lobby.players.forEach((player) => {
+      player.isJailed = false;
+    });
+  }
+
+  hypnotizedTargets.forEach(({ targetId, hypnotistId }) => {
+    const target = lobby.players.find((player) => player.playerId === targetId && player.isAlive);
+    if (target) target.hypnotizedBy = hypnotistId;
+  });
+
+  silencedPlayers.forEach((playerId) => {
+    const player = lobby.players.find((candidate) => candidate.playerId === playerId && candidate.isAlive);
+    if (player) {
+      player.isSilenced = true;
+      dawnAnnouncements.push(`${player.displayName} has been silenced and cannot vote today.`);
+    }
+  });
+
+  lobby.gameState.jailedPlayerIds = lobby.players.filter((player) => player.isJailed && player.isAlive).map((player) => player.playerId);
+  if (lobby.gameState.jailedPlayerIds.length > 0) {
+    const names = lobby.players
+      .filter((player) => lobby.gameState.jailedPlayerIds.includes(player.playerId))
+      .map((player) => player.displayName)
+      .join(', ');
+    dawnAnnouncements.push(`In jail: ${names}.`);
+  }
+
+  lobby.gameState.dawnAnnouncements = dawnAnnouncements;
+  lobby.gameState.eliminatedPlayers = lobby.players.filter((player) => !player.isAlive).map((player) => player.playerId);
+
+  investigationUpdates.forEach((entry) => {
+    const player = lobby.players.find((candidate) => candidate.playerId === entry.playerId);
+    if (player) {
+      player.investigationResult = entry.result;
+      io.to(player.socketId).emit('privatePlayerUpdate', player);
+    }
+  });
+
+  priestRevealUpdates.forEach((entry) => {
+    const target = lobby.players.find((candidate) => candidate.playerId === entry.targetId);
+    const priest = lobby.players.find((candidate) => candidate.playerId === entry.priestId);
+    if (target && priest) {
+      target.investigationResult = {
+        message: `${priest.displayName} is the Priest.`,
+      };
+      io.to(target.socketId).emit('privatePlayerUpdate', target);
+    }
+  });
+
+  if (checkWinCondition(lobby)) {
+    finishGame(lobby, io);
+    return;
+  }
+
+  io.to(lobby.lobbyId).emit('gameStateUpdate', lobby);
+}
+
+function resolveVotingPhase(lobby, io) {
+  const voteEntries = [];
+
+  for (const player of lobby.players.filter((candidate) => candidate.isAlive)) {
+    if (player.isJailed || player.isSilenced) continue;
+
+    let countedVote = player.currentVote;
+    if (player.hypnotizedBy) {
+      const hypnotist = lobby.players.find((candidate) => candidate.playerId === player.hypnotizedBy);
+      if (hypnotist?.currentVote) countedVote = hypnotist.currentVote;
+    }
+    if (!countedVote) continue;
+    if (countedVote === 'skip') continue;
+
+    const weight = player.role === 'Judge' ? 2 : 1;
+    for (let count = 0; count < weight; count += 1) {
+      voteEntries.push(countedVote);
+    }
+  }
+
+  const winnerId = chooseMajority(voteEntries);
+  lobby.gameState.lastEliminated = null;
+
+  if (winnerId) {
+    const victim = lobby.players.find((player) => player.playerId === winnerId);
+    if (victim && victim.isAlive) {
+      victim.isAlive = false;
+      lobby.gameState.lastEliminated = victim.playerId;
+    }
+  }
+
+  lobby.gameState.voteResults = {};
+  lobby.players.forEach((player) => {
+    player.currentVote = null;
+    player.readyToContinue = false;
+  });
+
+  if (!lobby.players.some((player) => player.isAlive && player.role === 'Jailer')) {
+    lobby.players.forEach((player) => {
+      player.isJailed = false;
+    });
+  }
+
+  syncAlivePlayers(lobby);
+  lobby.gameState.eliminatedPlayers = lobby.players.filter((player) => !player.isAlive).map((player) => player.playerId);
+  lobby.gameState.phase = 'result';
+  lobby.gameState.dawnAnnouncements = [];
+
+  if (checkWinCondition(lobby)) {
+    finishGame(lobby, io);
+    return;
+  }
+
+  io.to(lobby.lobbyId).emit('gameStateUpdate', lobby);
+  emitPrivateUpdates(lobby, io);
 }
 
 app.prepare().then(() => {
@@ -32,56 +733,14 @@ app.prepare().then(() => {
   const io = new Server(httpServer);
 
   io.on('connection', (socket) => {
-    console.log('Client connected:', socket.id);
-
     socket.on('createLobby', ({ displayName, sessionId }, callback) => {
-      const lobbyId = generateRoomCode();
-      const playerId = sessionId; // use sessionId as the persistent player identity
-      const newLobby = {
-        lobbyId,
-        hostId: playerId,
-        status: 'waiting',
-        settings: {
-          revealRoleOnDeath: true,
-          discussionTimer: 0,
-          nightActionTimer: 0,
-          doctorCanSelfSave: false,
-        },
-        roleConfig: {
-          mafia: 1,
-          doctor: 1,
-          detective: 1,
-          citizen: 2,
-        },
-        players: [{
-          playerId,
-          socketId: socket.id,
-          displayName,
-          isAlive: true,
-          role: null,
-          team: null,
-          isReady: false,
-          currentVote: null,
-          nightAction: null,
-          readyToContinue: false,
-        }],
-        gameState: {
-          phase: 'lobby',
-          roundNumber: 1,
-          alivePlayers: [playerId],
-          eliminatedPlayers: [],
-          nightActions: { mafiaTarget: null, doctorSave: null, detectiveCheck: null },
-          voteResults: {},
-          winner: null,
-          lastEliminated: null,
-          nightDeath: null,
-        }
-      };
-      
-      lobbies.set(lobbyId, newLobby);
-      socket.join(lobbyId);
-      callback(lobbyId);
-      io.to(lobbyId).emit('gameStateUpdate', newLobby);
+      const hostPlayer = createPlayer({ playerId: sessionId, socketId: socket.id, displayName });
+      const newLobby = createLobbyState(hostPlayer);
+
+      lobbies.set(newLobby.lobbyId, newLobby);
+      socket.join(newLobby.lobbyId);
+      callback(newLobby.lobbyId);
+      io.to(newLobby.lobbyId).emit('gameStateUpdate', newLobby);
       socket.emit('privatePlayerUpdate', newLobby.players[0]);
     });
 
@@ -89,134 +748,185 @@ app.prepare().then(() => {
       const lobby = lobbies.get(lobbyId);
       if (!lobby) return callback(false, 'Lobby not found');
       if (lobby.status !== 'waiting') return callback(false, 'Game already in progress');
-
-      const playerId = sessionId;
-      
-      // Check if they are already in the lobby
-      if (lobby.players.some(p => p.playerId === playerId)) {
-         return callback(false, 'Already in lobby. Please join via the link or refresh.');
+      if (lobby.players.some((player) => player.playerId === sessionId)) {
+        return callback(false, 'Already in lobby. Please join via the link or refresh.');
       }
-      const newPlayer = {
-        playerId,
-        socketId: socket.id,
-        displayName,
-        isAlive: true,
-        role: null,
-        team: null,
-        isReady: false,
-        currentVote: null,
-        nightAction: null,
-        readyToContinue: false,
-      };
 
+      const newPlayer = createPlayer({ playerId: sessionId, socketId: socket.id, displayName });
       lobby.players.push(newPlayer);
-      lobby.gameState.alivePlayers.push(playerId);
+      if (lobby.settings.mode === 'classic') {
+        lobby.roleConfig = getRecommendedClassicConfig(lobby.players.length);
+      }
+      syncAlivePlayers(lobby);
       socket.join(lobbyId);
       callback(true);
-      
       io.to(lobbyId).emit('gameStateUpdate', lobby);
       socket.emit('privatePlayerUpdate', newPlayer);
     });
 
+    socket.on('updateSettings', ({ lobbyId, settings }) => {
+      const lobby = lobbies.get(lobbyId);
+      if (!isHost(lobby, socket.id) || lobby.status !== 'waiting') return;
+      lobby.settings = { ...lobby.settings, ...settings };
+      if (lobby.settings.mode === 'classic') {
+        lobby.roleConfig = getRecommendedClassicConfig(lobby.players.length);
+      }
+      io.to(lobbyId).emit('gameStateUpdate', lobby);
+    });
+
     socket.on('updateRoleConfig', ({ lobbyId, config }) => {
       const lobby = lobbies.get(lobbyId);
-      if (!isHost(lobby, socket.id)) return;
-      lobby.roleConfig = config;
+      if (!isHost(lobby, socket.id) || lobby.status !== 'waiting') return;
+      lobby.roleConfig = cloneConfig(config);
       io.to(lobbyId).emit('gameStateUpdate', lobby);
     });
 
     socket.on('toggleReady', (lobbyId) => {
       const lobby = lobbies.get(lobbyId);
       if (!lobby) return;
-      const player = lobby.players.find(p => p.socketId === socket.id);
-      if (player) {
-        player.isReady = !player.isReady;
-        io.to(lobbyId).emit('gameStateUpdate', lobby);
-      }
+      const player = getPlayer(lobby, socket.id);
+      if (!player) return;
+      player.isReady = !player.isReady;
+      io.to(lobbyId).emit('gameStateUpdate', lobby);
     });
 
     socket.on('startGame', (lobbyId) => {
       const lobby = lobbies.get(lobbyId);
       if (!isHost(lobby, socket.id)) return;
 
-      const totalRolesConfigured = lobby.roleConfig.mafia + lobby.roleConfig.doctor + lobby.roleConfig.detective + lobby.roleConfig.citizen;
-      if (totalRolesConfigured !== lobby.players.length) {
-        socket.emit('error', 'Role count must match player count');
+      const configError = validateConfig(lobby);
+      if (configError) {
+        socket.emit('error', configError);
         return;
       }
 
-      // Assign Roles
-      let rolesPool = [];
-      for(let i=0; i<lobby.roleConfig.mafia; i++) rolesPool.push({role: 'Mafia', team: 'Mafia'});
-      for(let i=0; i<lobby.roleConfig.doctor; i++) rolesPool.push({role: 'Doctor', team: 'Citizens'});
-      for(let i=0; i<lobby.roleConfig.detective; i++) rolesPool.push({role: 'Detective', team: 'Citizens'});
-      for(let i=0; i<lobby.roleConfig.citizen; i++) rolesPool.push({role: 'Citizen', team: 'Citizens'});
-
-      // Shuffle
-      rolesPool = rolesPool.sort(() => Math.random() - 0.5);
-
-      lobby.players.forEach((p, index) => {
-        p.role = rolesPool[index].role;
-        p.team = rolesPool[index].team;
-        p.isAlive = true;
+      const rolePool = buildRolePool(lobby.roleConfig);
+      lobby.players.forEach((player, index) => {
+        player.role = rolePool[index].role;
+        player.team = rolePool[index].team;
+        player.isAlive = true;
+        player.isReady = false;
+        player.isJailed = false;
+        player.isSilenced = false;
+        player.hypnotizedBy = null;
+        resetPlayerRoundState(player);
       });
 
       lobby.status = 'in_progress';
       lobby.gameState.phase = 'role_reveal';
-      
+      lobby.gameState.firstNight = true;
+      lobby.gameState.roundNumber = 0;
+      lobby.gameState.nightDeaths = [];
+      lobby.gameState.lastEliminated = null;
+      lobby.gameState.voteResults = {};
+      lobby.gameState.winner = null;
+      lobby.gameState.jailedPlayerIds = [];
+      lobby.gameState.dawnAnnouncements = [];
+      syncAlivePlayers(lobby);
+
       io.to(lobbyId).emit('gameStateUpdate', lobby);
-      lobby.players.forEach(p => {
-        io.to(p.socketId).emit('privatePlayerUpdate', p);
-      });
+      emitPrivateUpdates(lobby, io);
     });
 
     socket.on('continueToNextPhase', (lobbyId) => {
       const lobby = lobbies.get(lobbyId);
       if (!lobby) return;
-      const player = lobby.players.find(p => p.socketId === socket.id);
-      if (player) player.readyToContinue = true;
+      const player = getPlayer(lobby, socket.id);
+      if (!player || !player.isAlive) return;
 
-      // If all ALIVE players are ready, move phase
-      const alivePlayers = lobby.players.filter(p => p.isAlive);
-      if (alivePlayers.every(p => p.readyToContinue)) {
-        // Reset flags
-        lobby.players.forEach(p => p.readyToContinue = false);
+      player.readyToContinue = true;
+      const alivePlayers = lobby.players.filter((candidate) => candidate.isAlive);
+      if (!alivePlayers.every((candidate) => candidate.readyToContinue)) {
+        io.to(lobbyId).emit('gameStateUpdate', lobby);
+        return;
+      }
 
-        if (lobby.gameState.phase === 'role_reveal') {
-          startNightPhase(lobby, io);
-        } else if (lobby.gameState.phase === 'day') {
-           // From day announcements to voting
-           lobby.gameState.phase = 'voting';
-           io.to(lobbyId).emit('gameStateUpdate', lobby);
-        } else if (lobby.gameState.phase === 'result') {
-           // Next round (Night again)
-           startNightPhase(lobby, io);
-        }
-      } else {
+      lobby.players.forEach((candidate) => {
+        candidate.readyToContinue = false;
+      });
+
+      if (lobby.gameState.phase === 'role_reveal' || lobby.gameState.phase === 'result') {
+        startNightPhase(lobby, io);
+      } else if (lobby.gameState.phase === 'day') {
+        lobby.gameState.phase = 'voting';
         io.to(lobbyId).emit('gameStateUpdate', lobby);
       }
     });
 
-    socket.on('submitNightAction', ({ lobbyId, targetId }) => {
+    socket.on('submitNightAction', ({
+      lobbyId,
+      mafiaTargetId = null,
+      yakuzaTargetId = null,
+      abilityTargetId = null,
+      secondaryAbilityTargetId = null,
+      abilityAction = null,
+    }) => {
       const lobby = lobbies.get(lobbyId);
       if (!lobby || lobby.gameState.phase !== 'night') return;
       const player = getPlayer(lobby, socket.id);
-      if (!player || !player.isAlive) return;
+      if (!player || !player.isAlive || !player.role) return;
 
-      player.nightAction = targetId;
+      if (player.isJailed) {
+        socket.emit('error', 'Jailed players cannot use abilities or participate in night actions');
+        return;
+      }
 
-      // Check if all active night roles have submitted
-      const mafiaAlive = lobby.players.filter(p => p.role === 'Mafia' && p.isAlive);
-      const doctorAlive = lobby.players.filter(p => p.role === 'Doctor' && p.isAlive);
-      const detAlive = lobby.players.filter(p => p.role === 'Detective' && p.isAlive);
+      if (abilityTargetId && abilityTargetId === player.playerId) {
+        socket.emit('error', 'You cannot target yourself with a role ability');
+        return;
+      }
+      if (secondaryAbilityTargetId && secondaryAbilityTargetId === player.playerId) {
+        socket.emit('error', 'You cannot target yourself with a role ability');
+        return;
+      }
 
-      const mafiaDone = mafiaAlive.length === 0 || mafiaAlive.every(p => p.nightAction !== null);
-      const docDone = doctorAlive.length === 0 || doctorAlive.every(p => p.nightAction !== null);
-      const detDone = detAlive.length === 0 || detAlive.every(p => p.nightAction !== null);
+      const allowedActions = getAllowedActions(player.role);
+      if (abilityAction && !allowedActions.includes(abilityAction)) {
+        socket.emit('error', 'That role cannot use that action');
+        return;
+      }
 
-      io.to(lobbyId).emit('gameStateUpdate', lobby); // update UI to show "locked"
+      if (needsMafiaVote(player, lobby)) {
+        if (!mafiaTargetId) {
+          socket.emit('error', 'Your role must submit a Mafia target tonight');
+          return;
+        }
+        player.mafiaVoteTarget = mafiaTargetId;
+      }
 
-      if (mafiaDone && docDone && detDone) {
+      if (needsYakuzaVote(player, lobby)) {
+        if (!yakuzaTargetId) {
+          socket.emit('error', 'Yakuza must choose a victim each night');
+          return;
+        }
+        player.yakuzaVoteTarget = yakuzaTargetId;
+      }
+
+      if (needsAbility(player.role)) {
+        if (!abilityAction) {
+          socket.emit('error', 'Your role needs an action selected');
+          return;
+        }
+        if (abilityAction === 'compare') {
+          if (!abilityTargetId || !secondaryAbilityTargetId || abilityTargetId === secondaryAbilityTargetId) {
+            socket.emit('error', 'Journalist must choose two different players');
+            return;
+          }
+        } else if (!abilityTargetId) {
+          socket.emit('error', 'Your role needs a target');
+          return;
+        }
+
+        player.abilityAction = abilityAction;
+        player.abilityTarget = abilityTargetId;
+        player.secondaryAbilityTarget = secondaryAbilityTargetId;
+      }
+
+      io.to(lobbyId).emit('gameStateUpdate', lobby);
+      io.to(player.socketId).emit('privatePlayerUpdate', player);
+
+      const activeNightPlayers = lobby.players.filter((candidate) => candidate.isAlive && (needsMafiaVote(candidate, lobby) || needsYakuzaVote(candidate, lobby) || needsAbility(candidate.role)));
+      if (activeNightPlayers.every((candidate) => isNightActionComplete(candidate, lobby))) {
         resolveNightPhase(lobby, io);
       }
     });
@@ -224,255 +934,91 @@ app.prepare().then(() => {
     socket.on('submitVote', ({ lobbyId, targetId }) => {
       const lobby = lobbies.get(lobbyId);
       if (!lobby || lobby.gameState.phase !== 'voting') return;
-      const player = lobby.players.find(p => p.socketId === socket.id);
-      if (!player || !player.isAlive) return;
+      const player = getPlayer(lobby, socket.id);
+      if (!player || !player.isAlive || player.currentVote !== null) return;
+      if (player.isJailed || player.isSilenced) {
+        socket.emit('error', 'You cannot vote today');
+        return;
+      }
 
       player.currentVote = targetId;
       lobby.gameState.voteResults[player.playerId] = targetId;
       io.to(lobbyId).emit('gameStateUpdate', lobby);
 
-      const alivePlayers = lobby.players.filter(p => p.isAlive);
-      if (Object.keys(lobby.gameState.voteResults).length === alivePlayers.length) {
+      const voters = lobby.players.filter((candidate) => candidate.isAlive && !candidate.isJailed && !candidate.isSilenced);
+      if (voters.every((candidate) => candidate.currentVote !== null)) {
         resolveVotingPhase(lobby, io);
       }
     });
 
     socket.on('reconnectLobby', ({ lobbyId, sessionId }) => {
       const lobby = lobbies.get(lobbyId);
-      if (!lobby) return; // Silent fail if lobby doesn't exist
+      if (!lobby) return;
+      const player = lobby.players.find((candidate) => candidate.playerId === sessionId);
+      if (!player) return;
 
-      const player = lobby.players.find(p => p.playerId === sessionId);
-      if (player) {
-         // Re-attach the new socket ID to the existing player
-         player.socketId = socket.id;
-         socket.join(lobbyId);
-         
-         // Send them their current state privately
-         socket.emit('gameStateUpdate', lobby);
-         socket.emit('privatePlayerUpdate', player);
-      }
+      player.socketId = socket.id;
+      socket.join(lobbyId);
+      socket.emit('gameStateUpdate', lobby);
+      socket.emit('privatePlayerUpdate', player);
     });
 
     socket.on('playAgain', (lobbyId) => {
       const lobby = lobbies.get(lobbyId);
       if (!isHost(lobby, socket.id)) return;
-      
-      lobby.status = 'waiting';
-      lobby.gameState = {
-          phase: 'lobby',
-          roundNumber: 1,
-          alivePlayers: lobby.players.map(p => p.playerId),
-          eliminatedPlayers: [],
-          nightActions: { mafiaTarget: null, doctorSave: null, detectiveCheck: null },
-          voteResults: {},
-          winner: null,
-          lastEliminated: null,
-          nightDeath: null,
-          detectiveResult: null,
-      };
-      
-      lobby.players.forEach(p => {
-          p.isAlive = true;
-          p.role = null;
-          p.team = null;
-          p.isReady = false;
-          p.currentVote = null;
-          p.nightAction = null;
-          p.readyToContinue = false;
-      });
-      
+      resetForNewGame(lobby);
       io.to(lobbyId).emit('gameStateUpdate', lobby);
+      emitPrivateUpdates(lobby, io);
     });
 
     socket.on('kickPlayer', ({ lobbyId, targetId }) => {
       const lobby = lobbies.get(lobbyId);
-      if (!isHost(lobby, socket.id) || lobby.status !== 'waiting') return;
-      
-      const pIndex = lobby.players.findIndex(p => p.playerId === targetId);
-      if (pIndex !== -1) {
-        lobby.players.splice(pIndex, 1);
-        lobby.gameState.alivePlayers = lobby.gameState.alivePlayers.filter(id => id !== targetId);
-        io.to(lobbyId).emit('gameStateUpdate', lobby);
+      if (!isHost(lobby, socket.id) || lobby?.status !== 'waiting') return;
+      const playerIndex = lobby.players.findIndex((player) => player.playerId === targetId);
+      if (playerIndex === -1) return;
+      lobby.players.splice(playerIndex, 1);
+      if (lobby.settings.mode === 'classic') {
+        lobby.roleConfig = getRecommendedClassicConfig(lobby.players.length);
       }
+      syncAlivePlayers(lobby);
+      io.to(lobbyId).emit('gameStateUpdate', lobby);
     });
 
     socket.on('pauseGame', (lobbyId) => {
       const lobby = lobbies.get(lobbyId);
-      if (isHost(lobby, socket.id)) {
-        lobby.status = 'paused';
-        io.to(lobbyId).emit('gameStateUpdate', lobby);
-      }
+      if (!isHost(lobby, socket.id)) return;
+      lobby.status = 'paused';
+      io.to(lobbyId).emit('gameStateUpdate', lobby);
     });
 
     socket.on('resumeGame', (lobbyId) => {
       const lobby = lobbies.get(lobbyId);
-      if (isHost(lobby, socket.id) && lobby.status === 'paused') {
-        lobby.status = 'in_progress';
-        io.to(lobbyId).emit('gameStateUpdate', lobby);
-      }
+      if (!isHost(lobby, socket.id) || lobby.status !== 'paused') return;
+      lobby.status = 'in_progress';
+      io.to(lobbyId).emit('gameStateUpdate', lobby);
     });
 
     socket.on('forceAdvancePhase', (lobbyId) => {
       const lobby = lobbies.get(lobbyId);
       if (!isHost(lobby, socket.id)) return;
-      
-      const phase = lobby.gameState.phase;
-      // Reset ready flags
-      lobby.players.forEach(p => p.readyToContinue = false);
+      lobby.players.forEach((player) => {
+        player.readyToContinue = false;
+      });
 
-      if (phase === 'role_reveal' || phase === 'result') {
-         startNightPhase(lobby, io);
-      } else if (phase === 'night') {
-         resolveNightPhase(lobby, io);
-      } else if (phase === 'day') {
-         lobby.gameState.phase = 'voting';
-         io.to(lobbyId).emit('gameStateUpdate', lobby);
-      } else if (phase === 'voting') {
-         resolveVotingPhase(lobby, io);
+      if (lobby.gameState.phase === 'role_reveal' || lobby.gameState.phase === 'result') {
+        startNightPhase(lobby, io);
+      } else if (lobby.gameState.phase === 'night') {
+        resolveNightPhase(lobby, io);
+      } else if (lobby.gameState.phase === 'day') {
+        lobby.gameState.phase = 'voting';
+        io.to(lobbyId).emit('gameStateUpdate', lobby);
+      } else if (lobby.gameState.phase === 'voting') {
+        resolveVotingPhase(lobby, io);
       }
-    });
-
-    socket.on('disconnect', () => {
-      console.log('Client disconnected:', socket.id);
-      // For MVP, if a player disconnects, let's keep them in memory.
-      // A robust app would handle reconnects, but we skip it here.
     });
   });
 
-  // GAME ENGINE HELPERS
-  function startNightPhase(lobby, io) {
-    lobby.gameState.phase = 'night';
-    lobby.gameState.roundNumber += 1;
-    lobby.gameState.nightActions = { mafiaTarget: null, doctorSave: null, detectiveCheck: null };
-    lobby.players.forEach(p => {
-       p.nightAction = null;
-       p.detectiveResult = undefined; // clear old results
-    });
-    io.to(lobby.lobbyId).emit('gameStateUpdate', lobby);
-  }
-
-  function resolveNightPhase(lobby, io) {
-    // 1. Gather actions 
-    const mafiaTargets = lobby.players.filter(p => p.role === 'Mafia' && p.isAlive && p.nightAction).map(p => p.nightAction);
-    let mafiaTarget = null;
-    if (mafiaTargets.length > 0) {
-       const counts = {};
-       let maxVotes = 0;
-       for (const t of mafiaTargets) {
-          counts[t] = (counts[t] || 0) + 1;
-          if (counts[t] > maxVotes) {
-             maxVotes = counts[t];
-             mafiaTarget = t;
-          }
-       }
-    }
-    
-    const docSave = lobby.players.find(p => p.role === 'Doctor' && p.isAlive)?.nightAction;
-    const detCheck = lobby.players.find(p => p.role === 'Detective' && p.isAlive)?.nightAction;
-    
-    // Resolve Detective
-    if (detCheck) {
-      const targetPlayer = lobby.players.find(p => p.playerId === detCheck);
-      const detPlayer = lobby.players.find(p => p.role === 'Detective' && p.isAlive);
-      if (detPlayer && targetPlayer) {
-        detPlayer.detectiveResult = { targetId: targetPlayer.playerId, isMafia: targetPlayer.role === 'Mafia'};
-        io.to(detPlayer.socketId).emit('privatePlayerUpdate', detPlayer);
-      }
-    }
-
-    // Resolve Elimination
-    lobby.gameState.nightDeath = null;
-    if (mafiaTarget && mafiaTarget !== docSave) {
-      const victim = lobby.players.find(p => p.playerId === mafiaTarget);
-      if (victim) {
-        victim.isAlive = false;
-        lobby.gameState.nightDeath = victim.playerId;
-        lobby.gameState.eliminatedPlayers.push(victim.playerId);
-      }
-    }
-
-    lobby.gameState.phase = 'day';
-    
-    if (checkWinCondition(lobby)) {
-        finishGame(lobby, io);
-        return;
-    }
-
-    io.to(lobby.lobbyId).emit('gameStateUpdate', lobby);
-  }
-
-  function resolveVotingPhase(lobby, io) {
-     const votes = Object.values(lobby.gameState.voteResults).filter(v => v !== 'skip');
-     
-     if (votes.length === 0) {
-        // No one eliminated
-        lobby.gameState.lastEliminated = null;
-     } else {
-        // Tally
-        const counts = {};
-        let maxVotes = 0;
-        let eliminatedId = null;
-        let tie = false;
-        
-        for (const v of votes) {
-           counts[v] = (counts[v] || 0) + 1;
-           if (counts[v] > maxVotes) {
-               maxVotes = counts[v];
-               eliminatedId = v;
-               tie = false;
-           } else if (counts[v] === maxVotes) {
-               tie = true;
-           }
-        }
-
-        if (tie) {
-            lobby.gameState.lastEliminated = null; // tie = no elimination MVP
-        } else {
-            const victim = lobby.players.find(p => p.playerId === eliminatedId);
-            if (victim) {
-                victim.isAlive = false;
-                lobby.gameState.lastEliminated = victim.playerId;
-                lobby.gameState.eliminatedPlayers.push(victim.playerId);
-            }
-        }
-     }
-
-     lobby.gameState.voteResults = {};
-     lobby.players.forEach(p => p.currentVote = null);
-     lobby.gameState.phase = 'result';
-
-     if (checkWinCondition(lobby)) {
-         finishGame(lobby, io);
-         return;
-     }
-
-     io.to(lobby.lobbyId).emit('gameStateUpdate', lobby);
-  }
-
-  function checkWinCondition(lobby) {
-     const aliveMafia = lobby.players.filter(p => p.isAlive && p.team === 'Mafia').length;
-     const aliveCitizens = lobby.players.filter(p => p.isAlive && p.team === 'Citizens').length;
-
-     if (aliveMafia === 0) {
-        lobby.gameState.winner = 'Citizens';
-        return true;
-     }
-     if (aliveMafia >= aliveCitizens) {
-        lobby.gameState.winner = 'Mafia';
-        return true;
-     }
-     return false;
-  }
-
-  function finishGame(lobby, io) {
-     lobby.gameState.phase = 'ended';
-     lobby.status = 'finished';
-     io.to(lobby.lobbyId).emit('gameStateUpdate', lobby);
-  }
-
-  expressApp.all('*', (req, res) => {
-    return handle(req, res);
-  });
+  expressApp.all('*', (req, res) => handle(req, res));
 
   httpServer.listen(port, hostname, () => {
     console.log(`> Ready on http://${hostname}:${port}`);
