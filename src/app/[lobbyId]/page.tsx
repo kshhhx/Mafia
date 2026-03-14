@@ -11,6 +11,7 @@ import DayPhaseView from '@/components/DayPhaseView';
 import VotingPhaseView from '@/components/VotingPhaseView';
 import ResultView from '@/components/ResultView';
 import EndGameView from '@/components/EndGameView';
+import HelpPanel from '@/components/HelpPanel';
 
 export default function GameRoom({ params }: { params: { lobbyId: string } }) {
   const router = useRouter();
@@ -46,6 +47,7 @@ export default function GameRoom({ params }: { params: { lobbyId: string } }) {
 
   return (
     <div className="min-h-screen bg-darkerBg text-white pb-safe">
+      <HelpPanel lobby={lobby} />
       {phase === 'lobby' && <LobbyView />}
       {phase === 'role_reveal' && <RoleRevealView />}
       {phase === 'night' && <NightPhaseView />}

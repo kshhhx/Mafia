@@ -1,7 +1,9 @@
 'use client';
 
+import { useMemo, useState } from 'react';
 import { useGame } from '@/lib/socketClient';
-import type { GameMode, RoleConfig } from '@/lib/types';
+import { ROLE_BRIEFS, ROLE_CONFIG_TO_ROLE } from '@/lib/rules';
+import type { GameMode, Role, RoleConfig } from '@/lib/types';
 
 const CLASSIC_SETUPS: Record<number, Partial<RoleConfig>> = {
   6: { bystander: 4, detective: 1, thug: 1 },
@@ -19,25 +21,25 @@ const CLASSIC_SETUPS: Record<number, Partial<RoleConfig>> = {
 
 const ROLE_GROUPS: Array<{ title: string; fields: Array<{ key: keyof RoleConfig; label: string }> }> = [
   {
-    title: 'Civilian Roles',
+    title: 'Core Roles',
     fields: [
       { key: 'bystander', label: 'Bystander' },
+      { key: 'detective', label: 'Detective' },
+      { key: 'thug', label: 'Thug' },
+    ],
+  },
+  {
+    title: 'Unlocked Specialists',
+    fields: [
       { key: 'nurse', label: 'Nurse' },
       { key: 'bodyguard', label: 'Bodyguard' },
       { key: 'vixen', label: 'Vixen' },
       { key: 'hypnotist', label: 'Hypnotist' },
       { key: 'journalist', label: 'Journalist' },
-      { key: 'detective', label: 'Detective' },
       { key: 'jailer', label: 'Jailer' },
       { key: 'priest', label: 'Priest' },
       { key: 'judge', label: 'Judge' },
       { key: 'sheriff', label: 'Sheriff' },
-    ],
-  },
-  {
-    title: 'Mafia Roles',
-    fields: [
-      { key: 'thug', label: 'Thug' },
       { key: 'thief', label: 'Thief' },
       { key: 'lawyer', label: 'Lawyer' },
       { key: 'godfather', label: 'Godfather' },
@@ -45,7 +47,7 @@ const ROLE_GROUPS: Array<{ title: string; fields: Array<{ key: keyof RoleConfig;
     ],
   },
   {
-    title: 'Alternate Mode Roles',
+    title: 'Alternate Modes',
     fields: [
       { key: 'yakuza', label: 'Yakuza' },
       { key: 'femmeFatale', label: 'Femme Fatale' },
@@ -82,26 +84,32 @@ function emptyConfig(): RoleConfig {
 
 export default function LobbyView() {
   const { lobby, me, socket } = useGame();
+  const [infoRole, setInfoRole] = useState<Role | null>(null);
   if (!lobby || !me || !socket) return null;
 
   const isHost = lobby.hostId === me.playerId;
-  const playerCount = lobby.players.length;
-  const isBalanced = Object.values(lobby.roleConfig).reduce((sum, count) => sum + count, 0) === playerCount;
+  const joinedCount = lobby.players.length;
+  const intendedCount = lobby.settings.intendedPlayerCount;
+  const effectiveCount = Math.max(joinedCount, intendedCount);
+  const totalRoles = Object.values(lobby.roleConfig).reduce((sum, count) => sum + count, 0);
+  const canStart = totalRoles === joinedCount && joinedCount >= intendedCount;
+  const waitingFor = Math.max(0, intendedCount - joinedCount);
+
+  const visibleRoleGroups = useMemo(
+    () =>
+      ROLE_GROUPS.map((group) => ({
+        ...group,
+        fields: group.fields.filter(({ key }) => ROLE_BRIEFS[ROLE_CONFIG_TO_ROLE[key]].minPlayers <= effectiveCount),
+      })).filter((group) => group.fields.length > 0),
+    [effectiveCount],
+  );
 
   const applyClassic = () => {
     socket.emit('updateSettings', { lobbyId: lobby.lobbyId, settings: { mode: 'classic' } });
     socket.emit('updateRoleConfig', {
       lobbyId: lobby.lobbyId,
-      config: { ...emptyConfig(), ...(CLASSIC_SETUPS[playerCount] || { bystander: Math.max(0, playerCount - 2), detective: 1, thug: 1 }) },
+      config: { ...emptyConfig(), ...(CLASSIC_SETUPS[effectiveCount] || { bystander: Math.max(0, effectiveCount - 2), detective: 1, thug: 1 }) },
     });
-  };
-
-  const setMode = (mode: GameMode) => {
-    socket.emit('updateSettings', { lobbyId: lobby.lobbyId, settings: { mode } });
-  };
-
-  const toggleMystery = () => {
-    socket.emit('updateSettings', { lobbyId: lobby.lobbyId, settings: { mysteryMode: !lobby.settings.mysteryMode } });
   };
 
   const updateRole = (key: keyof RoleConfig, delta: number) => {
@@ -109,46 +117,82 @@ export default function LobbyView() {
     socket.emit('updateRoleConfig', { lobbyId: lobby.lobbyId, config: { ...lobby.roleConfig, [key]: next } });
   };
 
+  const setMode = (mode: GameMode) => {
+    socket.emit('updateSettings', { lobbyId: lobby.lobbyId, settings: { mode } });
+  };
+
   return (
     <div className="flex flex-col p-6 max-w-md mx-auto fade-in">
-      <div className="text-center mb-8">
-        <h2 className="text-gray-400 font-semibold tracking-widest uppercase text-xs">Room Code</h2>
-        <h1 className="text-5xl font-black tracking-widest text-mafiaRed">{lobby.lobbyId}</h1>
+      <div className="text-center mb-6">
+        <h2 className="text-gray-500 font-semibold tracking-[0.25em] uppercase text-xs mb-2">Room Code</h2>
+        <h1 className="text-5xl font-black tracking-[0.15em] text-mafiaRed">{lobby.lobbyId}</h1>
+        <p className="text-gray-400 mt-3 text-sm max-w-sm mx-auto">
+          Host sets the expected table size, everyone joins, then the host starts when the room is ready.
+        </p>
       </div>
 
-      <div className="bg-darkPanel rounded-2xl p-4 mb-6 shadow-lg">
-        <h3 className="text-lg font-bold mb-4 border-b border-gray-700 pb-2">Players ({playerCount})</h3>
+      <div className="bg-darkPanel rounded-3xl p-4 mb-5 shadow-lg border border-gray-800">
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="text-sm font-bold uppercase tracking-widest text-gray-400">Table Size</h3>
+            <p className="text-2xl font-black text-white mt-1">
+              {joinedCount}/{intendedCount}
+            </p>
+            <p className="text-xs text-gray-500 mt-1">
+              {waitingFor > 0 ? `Waiting for ${waitingFor} more player${waitingFor === 1 ? '' : 's'}.` : 'Everyone has joined. The host can start any time.'}
+            </p>
+          </div>
+
+          {isHost && (
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => socket.emit('updateSettings', { lobbyId: lobby.lobbyId, settings: { intendedPlayerCount: intendedCount - 1 } })}
+                className="w-9 h-9 rounded-full bg-gray-800 hover:bg-gray-700"
+              >
+                -
+              </button>
+              <span className="w-8 text-center font-bold">{intendedCount}</span>
+              <button
+                onClick={() => socket.emit('updateSettings', { lobbyId: lobby.lobbyId, settings: { intendedPlayerCount: intendedCount + 1 } })}
+                className="w-9 h-9 rounded-full bg-gray-800 hover:bg-gray-700"
+              >
+                +
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="bg-darkPanel rounded-3xl p-4 mb-5 shadow-lg border border-gray-800">
+        <h3 className="text-sm font-bold uppercase tracking-widest text-gray-400 mb-3">Players</h3>
         <ul className="space-y-3">
           {lobby.players.map((player) => (
-            <li key={player.playerId} className="flex items-center justify-between">
+            <li key={player.playerId} className="flex items-center justify-between rounded-2xl bg-black/20 px-4 py-3">
               <span className="font-medium text-lg flex items-center">
-                {player.displayName} {player.playerId === lobby.hostId && <span className="text-yellow-500 text-sm ml-2">👑</span>}
+                {player.displayName} {player.playerId === lobby.hostId && <span className="text-yellow-500 text-sm ml-2">Host</span>}
               </span>
-              <div className="flex items-center space-x-3">
-                <span className={`text-sm ${player.isReady ? 'text-green-400' : 'text-gray-500'}`}>{player.isReady ? 'Ready' : 'Waiting'}</span>
-                {isHost && player.playerId !== lobby.hostId && (
-                  <button
-                    onClick={() => socket.emit('kickPlayer', { lobbyId: lobby.lobbyId, targetId: player.playerId })}
-                    className="text-xs text-red-500 hover:text-red-400 bg-red-500/10 hover:bg-red-500/20 px-2 py-1 rounded transition-colors"
-                  >
-                    Kick
-                  </button>
-                )}
-              </div>
+              {isHost && player.playerId !== lobby.hostId && (
+                <button
+                  onClick={() => socket.emit('kickPlayer', { lobbyId: lobby.lobbyId, targetId: player.playerId })}
+                  className="text-xs text-red-400 hover:text-red-300 bg-red-500/10 hover:bg-red-500/20 px-2 py-1 rounded transition-colors"
+                >
+                  Kick
+                </button>
+              )}
             </li>
           ))}
         </ul>
       </div>
 
       {isHost && (
-        <div className="bg-darkPanel rounded-2xl p-4 mb-6 shadow-lg">
-          <div className="flex justify-between items-center mb-4 border-b border-gray-700 pb-2">
+        <div className="bg-darkPanel rounded-3xl p-4 mb-5 shadow-lg border border-gray-800">
+          <div className="flex items-center justify-between mb-4">
             <div>
-              <h3 className="text-lg font-bold">Rulebook Setup</h3>
-              <p className="text-xs text-gray-400 mt-1">Classic auto-fill plus manual advanced-role controls.</p>
+              <h3 className="text-lg font-bold">Role Setup</h3>
+              <p className="text-xs text-gray-400 mt-1">Advanced roles unlock as the intended table size increases.</p>
             </div>
             <button onClick={applyClassic} className="text-xs bg-gray-700 px-3 py-1 rounded-full hover:bg-gray-600 transition-colors">
-              Classic Auto-fill
+              Suggested Cast
             </button>
           </div>
 
@@ -167,7 +211,7 @@ export default function LobbyView() {
           </div>
 
           <button
-            onClick={toggleMystery}
+            onClick={() => socket.emit('updateSettings', { lobbyId: lobby.lobbyId, settings: { mysteryMode: !lobby.settings.mysteryMode } })}
             className={`w-full mb-5 py-3 rounded-xl text-sm font-semibold transition-all ${
               lobby.settings.mysteryMode ? 'bg-yellow-500/20 text-yellow-300 border border-yellow-500/40' : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
             }`}
@@ -176,59 +220,88 @@ export default function LobbyView() {
           </button>
 
           <div className="space-y-6 max-h-[28rem] overflow-y-auto pr-1">
-            {ROLE_GROUPS.map((group) => (
+            {visibleRoleGroups.map((group) => (
               <section key={group.title}>
                 <h4 className="text-xs font-bold uppercase tracking-widest text-gray-400 mb-3">{group.title}</h4>
                 <div className="space-y-3">
-                  {group.fields.map(({ key, label }) => (
-                    <div key={key} className="flex items-center justify-between">
-                      <span className="font-medium">{label}</span>
-                      <div className="flex items-center space-x-4">
-                        <button onClick={() => updateRole(key, -1)} className="w-8 h-8 rounded-full bg-gray-700 flex items-center justify-center hover:bg-gray-600">
-                          -
-                        </button>
-                        <span className="w-4 text-center font-bold">{lobby.roleConfig[key]}</span>
-                        <button onClick={() => updateRole(key, 1)} className="w-8 h-8 rounded-full bg-gray-700 flex items-center justify-center hover:bg-gray-600">
-                          +
-                        </button>
+                  {group.fields.map(({ key, label }) => {
+                    const role = ROLE_CONFIG_TO_ROLE[key];
+                    return (
+                      <div key={key} className="flex items-center justify-between rounded-2xl bg-black/20 px-3 py-3">
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium">{label}</span>
+                          <button
+                            type="button"
+                            onClick={() => setInfoRole(role)}
+                            className="w-5 h-5 rounded-full bg-gray-700 text-xs text-white hover:bg-gray-600"
+                            aria-label={`About ${label}`}
+                          >
+                            i
+                          </button>
+                        </div>
+                        <div className="flex items-center space-x-4">
+                          <button onClick={() => updateRole(key, -1)} className="w-8 h-8 rounded-full bg-gray-700 flex items-center justify-center hover:bg-gray-600">
+                            -
+                          </button>
+                          <span className="w-4 text-center font-bold">{lobby.roleConfig[key]}</span>
+                          <button onClick={() => updateRole(key, 1)} className="w-8 h-8 rounded-full bg-gray-700 flex items-center justify-center hover:bg-gray-600">
+                            +
+                          </button>
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </section>
             ))}
           </div>
-
-          {!isBalanced && (
-            <div className="mt-4 text-xs text-red-400 bg-red-400/10 p-2 rounded text-center">
-              Roles assigned must equal players before the game can start.
-            </div>
-          )}
         </div>
       )}
 
-      <div className="mt-auto pt-8 flex flex-col space-y-4">
-        <button
-          onClick={() => socket.emit('toggleReady', lobby.lobbyId)}
-          className={`w-full py-4 rounded-xl font-bold text-lg shadow-lg active:scale-95 transition-all outline outline-1 outline-gray-600 ${
-            me.isReady ? 'bg-green-600 text-white' : 'bg-darkPanel text-gray-300'
-          }`}
-        >
-          {me.isReady ? 'Ready!' : 'Mark Ready'}
-        </button>
+      {!isHost && (
+        <div className="bg-darkPanel rounded-3xl p-4 mb-5 shadow-lg border border-gray-800 text-sm text-gray-300 leading-6">
+          The host is setting the table. Once everyone has joined, the game will begin when the host starts it.
+        </div>
+      )}
 
-        {isHost && (
+      <div className="mt-auto pt-2">
+        {isHost ? (
           <button
             onClick={() => socket.emit('startGame', lobby.lobbyId)}
-            disabled={!isBalanced}
-            className={`w-full py-4 rounded-xl font-bold text-lg shadow-lg active:scale-95 transition-all ${
-              isBalanced ? 'bg-mafiaRed text-white hover:bg-red-600 cursor-pointer' : 'bg-gray-800 text-gray-600 cursor-not-allowed'
+            disabled={!canStart}
+            className={`w-full py-4 rounded-xl font-bold text-lg shadow-lg transition-all ${
+              canStart ? 'bg-mafiaRed text-white hover:bg-red-600 cursor-pointer' : 'bg-gray-800 text-gray-500 cursor-not-allowed'
             }`}
           >
-            Start Game
+            {waitingFor > 0 ? `Waiting For ${waitingFor} More` : 'Start Game'}
           </button>
+        ) : (
+          <div className="w-full py-4 rounded-xl text-center bg-black/20 text-gray-500 font-medium">
+            Waiting for host to start
+          </div>
         )}
       </div>
+
+      {infoRole && (
+        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm p-4">
+          <div className="mx-auto mt-24 max-w-md rounded-3xl border border-gray-700 bg-darkerBg shadow-2xl">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-800">
+              <div>
+                <h3 className="text-xl font-black">{infoRole}</h3>
+                <p className="text-sm text-gray-400">Quick role brief</p>
+              </div>
+              <button onClick={() => setInfoRole(null)} className="rounded-full bg-gray-800 px-3 py-1 text-sm hover:bg-gray-700">
+                Close
+              </button>
+            </div>
+            <div className="px-5 py-4 space-y-3">
+              <p className="text-sm text-gray-200">{ROLE_BRIEFS[infoRole].summary}</p>
+              <p className="text-sm text-gray-400">{ROLE_BRIEFS[infoRole].ability}</p>
+              <p className="text-xs text-gray-500">Unlocked from {ROLE_BRIEFS[infoRole].minPlayers} intended players.</p>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

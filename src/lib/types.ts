@@ -70,6 +70,7 @@ export interface LobbySettings {
   nightActionTimer: number;
   mysteryMode: boolean;
   mode: GameMode;
+  intendedPlayerCount: number;
 }
 
 export interface GameState {
@@ -131,7 +132,6 @@ export interface ClientToServerEvents {
   reconnectLobby: (data: { lobbyId: string; sessionId: string }) => void;
   updateRoleConfig: (data: { lobbyId: string; config: RoleConfig }) => void;
   updateSettings: (data: { lobbyId: string; settings: Partial<LobbySettings> }) => void;
-  toggleReady: () => void;
   startGame: () => void;
   submitNightAction: (data: {
     lobbyId: string;

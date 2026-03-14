@@ -152,6 +152,7 @@ function createLobbyState(hostPlayer) {
       nightActionTimer: 0,
       mysteryMode: false,
       mode: 'classic',
+      intendedPlayerCount: 6,
     },
     roleConfig: getRecommendedClassicConfig(6),
     players: [hostPlayer],
@@ -196,6 +197,7 @@ function validateConfig(lobby) {
   const config = lobby.roleConfig;
   const total = totalConfiguredRoles(config);
   if (total !== lobby.players.length) return 'Role count must match player count';
+  if (lobby.players.length < lobby.settings.intendedPlayerCount) return 'Wait for the rest of the table to join before starting';
   if (lobby.settings.mode === 'classic' && (config.yakuza || config.femmeFatale || config.impostor || config.psycho)) {
     return 'Classic mode cannot include Yakuza or Loner roles';
   }
@@ -754,8 +756,9 @@ app.prepare().then(() => {
 
       const newPlayer = createPlayer({ playerId: sessionId, socketId: socket.id, displayName });
       lobby.players.push(newPlayer);
+      lobby.settings.intendedPlayerCount = Math.max(lobby.settings.intendedPlayerCount, lobby.players.length);
       if (lobby.settings.mode === 'classic') {
-        lobby.roleConfig = getRecommendedClassicConfig(lobby.players.length);
+        lobby.roleConfig = getRecommendedClassicConfig(lobby.settings.intendedPlayerCount);
       }
       syncAlivePlayers(lobby);
       socket.join(lobbyId);
@@ -767,9 +770,12 @@ app.prepare().then(() => {
     socket.on('updateSettings', ({ lobbyId, settings }) => {
       const lobby = lobbies.get(lobbyId);
       if (!isHost(lobby, socket.id) || lobby.status !== 'waiting') return;
-      lobby.settings = { ...lobby.settings, ...settings };
+      const intendedPlayerCount = settings.intendedPlayerCount == null
+        ? lobby.settings.intendedPlayerCount
+        : Math.max(lobby.players.length, Math.min(16, settings.intendedPlayerCount));
+      lobby.settings = { ...lobby.settings, ...settings, intendedPlayerCount };
       if (lobby.settings.mode === 'classic') {
-        lobby.roleConfig = getRecommendedClassicConfig(lobby.players.length);
+        lobby.roleConfig = getRecommendedClassicConfig(lobby.settings.intendedPlayerCount);
       }
       io.to(lobbyId).emit('gameStateUpdate', lobby);
     });
@@ -778,15 +784,6 @@ app.prepare().then(() => {
       const lobby = lobbies.get(lobbyId);
       if (!isHost(lobby, socket.id) || lobby.status !== 'waiting') return;
       lobby.roleConfig = cloneConfig(config);
-      io.to(lobbyId).emit('gameStateUpdate', lobby);
-    });
-
-    socket.on('toggleReady', (lobbyId) => {
-      const lobby = lobbies.get(lobbyId);
-      if (!lobby) return;
-      const player = getPlayer(lobby, socket.id);
-      if (!player) return;
-      player.isReady = !player.isReady;
       io.to(lobbyId).emit('gameStateUpdate', lobby);
     });
 
@@ -977,8 +974,9 @@ app.prepare().then(() => {
       const playerIndex = lobby.players.findIndex((player) => player.playerId === targetId);
       if (playerIndex === -1) return;
       lobby.players.splice(playerIndex, 1);
+      lobby.settings.intendedPlayerCount = Math.max(lobby.players.length, Math.min(lobby.settings.intendedPlayerCount, 16));
       if (lobby.settings.mode === 'classic') {
-        lobby.roleConfig = getRecommendedClassicConfig(lobby.players.length);
+        lobby.roleConfig = getRecommendedClassicConfig(lobby.settings.intendedPlayerCount);
       }
       syncAlivePlayers(lobby);
       io.to(lobbyId).emit('gameStateUpdate', lobby);

@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useGame } from '@/lib/socketClient';
+import HelpPanel from '@/components/HelpPanel';
 
 export default function Home() {
   const router = useRouter();
@@ -46,35 +47,50 @@ export default function Home() {
 
   if (mode === 'home') {
     return (
-      <main className="flex min-h-screen flex-col items-center justify-center p-6 fade-in">
-        <h1 className="text-6xl font-black tracking-tighter mb-2 text-mafiaRed drop-shadow-[0_0_15px_rgba(239,68,68,0.5)]">MAFIA</h1>
-        <p className="text-gray-400 mb-8 text-center text-lg max-w-sm leading-snug">
-          Create a lobby, invite friends, get secret roles, and let the app run the game automatically.
-        </p>
-        
-        <div className="flex flex-col space-y-4 w-full max-w-xs">
-          <button 
-            onClick={() => setMode('create')}
-            className="w-full py-4 rounded-xl bg-mafiaRed text-white font-bold text-lg shadow-lg hover:bg-red-600 active:scale-95 transition-all"
-          >
-            Create Lobby
-          </button>
-          <button 
-            onClick={() => setMode('join')}
-            className="w-full py-4 rounded-xl bg-darkPanel text-white font-bold text-lg shadow-lg hover:bg-gray-700 active:scale-95 transition-all outline outline-1 outline-gray-600"
-          >
-            Join Lobby
-          </button>
+      <main className="relative flex min-h-screen flex-col items-center justify-center p-6 fade-in overflow-hidden">
+        <HelpPanel lobby={null} />
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(239,68,68,0.14),transparent_38%),linear-gradient(180deg,#09090b_0%,#111827_100%)]" />
+        <div className="relative w-full max-w-md rounded-[2rem] border border-white/10 bg-black/35 backdrop-blur-xl p-7 shadow-2xl">
+          <div className="mb-8">
+            <p className="text-xs uppercase tracking-[0.35em] text-gray-500 mb-3">Party Game Companion</p>
+            <h1 className="text-5xl font-black tracking-tight mb-3 text-white">Mafia, without the chaos.</h1>
+            <p className="text-gray-400 text-base leading-7">
+              Start a room, bring everyone in, and let the app guide each phase one step at a time.
+            </p>
+          </div>
+
+          <div className="flex flex-col space-y-3 w-full">
+            <button
+              onClick={() => setMode('create')}
+              className="w-full py-4 rounded-2xl bg-mafiaRed text-white font-bold text-lg shadow-lg hover:bg-red-600 active:scale-95 transition-all"
+            >
+              Create Lobby
+            </button>
+            <button
+              onClick={() => setMode('join')}
+              className="w-full py-4 rounded-2xl bg-darkPanel text-white font-bold text-lg shadow-lg hover:bg-gray-700 active:scale-95 transition-all outline outline-1 outline-gray-700"
+            >
+              Join With Code
+            </button>
+          </div>
+
+          <div className="mt-6 grid grid-cols-3 gap-3 text-center text-xs text-gray-500">
+            <div className="rounded-2xl bg-white/5 px-3 py-3">Private role reveal</div>
+            <div className="rounded-2xl bg-white/5 px-3 py-3">Guided night actions</div>
+            <div className="rounded-2xl bg-white/5 px-3 py-3">Built-in rules help</div>
+          </div>
+
+          {error && <div className="mt-6 text-mafiaRed font-semibold text-sm">{error}</div>}
         </div>
-        
-        {error && <div className="mt-8 text-mafiaRed font-semibold">{error}</div>}
       </main>
     );
   }
 
   return (
-    <main className="flex min-h-screen flex-col items-center justify-center p-6 fade-in">
-      <h1 className="text-4xl font-bold mb-8">
+    <main className="relative flex min-h-screen flex-col items-center justify-center p-6 fade-in">
+      <HelpPanel lobby={null} />
+      <div className="w-full max-w-sm rounded-[2rem] border border-white/10 bg-black/30 backdrop-blur-xl p-6 shadow-2xl">
+      <h1 className="text-4xl font-bold mb-8 text-center">
         {mode === 'create' ? 'Create Lobby' : 'Join Lobby'}
       </h1>
       <form onSubmit={mode === 'create' ? handleCreate : handleJoin} className="w-full max-w-xs flex flex-col space-y-4">
@@ -102,7 +118,7 @@ export default function Home() {
         
         <button 
           type="submit"
-          className="w-full py-4 mt-4 rounded-xl bg-mafiaRed text-white font-bold text-lg shadow-lg hover:bg-red-600 active:scale-95 transition-all"
+          className="w-full py-4 mt-4 rounded-2xl bg-mafiaRed text-white font-bold text-lg shadow-lg hover:bg-red-600 active:scale-95 transition-all"
         >
           {mode === 'create' ? 'Start Lobby' : 'Join Game'}
         </button>
@@ -114,6 +130,7 @@ export default function Home() {
           Back
         </button>
       </form>
+      </div>
     </main>
   );
 }
